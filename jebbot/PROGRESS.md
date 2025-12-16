@@ -43,6 +43,14 @@
 - Blind test: can friends tell bot from real games?
 - Play against it myself
 
+## Phase 4.5: Preference Tuning (OPTIONAL)
+- Only if base model feels "close but not quite right"
+- Build simple UI: position + 2 candidate moves
+- I pick my preference (100-500 comparisons, ~30 min)
+- Fine-tune with DPO (Direct Preference Optimization)
+- No reward model needed, no RL complexity
+- This is RLHF-lite: refines style without massive compute
+
 ## Phase 5: Deployment (TODO)
 - FastAPI backend on Railway
 - Web frontend with chessboard.js
