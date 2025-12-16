@@ -46,10 +46,10 @@ def train_epoch(
     num_batches = 0
 
     for positions, move_indices, targets in dataloader:
-        # Move data to device
+        # Move data to device (convert targets to float32 before device transfer for MPS compatibility)
         positions = positions.to(device)
         move_indices = move_indices.to(device)
-        targets = targets.to(device).float().unsqueeze(1)  # Shape: (batch, 1)
+        targets = targets.to(torch.float32).unsqueeze(1).to(device)  # Shape: (batch, 1)
 
         # Zero gradients
         optimizer.zero_grad()
@@ -97,10 +97,10 @@ def validate(
 
     with torch.no_grad():
         for positions, move_indices, targets in dataloader:
-            # Move data to device
+            # Move data to device (convert targets to float32 before device transfer for MPS compatibility)
             positions = positions.to(device)
             move_indices = move_indices.to(device)
-            targets = targets.to(device).float().unsqueeze(1)  # Shape: (batch, 1)
+            targets = targets.to(torch.float32).unsqueeze(1).to(device)  # Shape: (batch, 1)
 
             # Forward pass
             outputs = model(positions, move_indices)
