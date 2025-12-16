@@ -1,5 +1,6 @@
 """Training utilities for StyleSelector model."""
 
+import gc
 from pathlib import Path
 
 import torch
@@ -28,6 +29,7 @@ def train_epoch(
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
     device: torch.device,
+    clear_cache_every: int = 1000,
 ) -> float:
     """Train for one epoch.
 
@@ -37,6 +39,7 @@ def train_epoch(
         optimizer: Optimizer (e.g., Adam)
         criterion: Loss function (e.g., BCELoss)
         device: Device to train on
+        clear_cache_every: Clear memory cache every N batches (helps with MPS memory pressure)
 
     Returns:
         Average loss for the epoch
@@ -68,6 +71,19 @@ def train_epoch(
 
         total_loss += loss.item()
         num_batches += 1
+
+        # Periodically clear memory cache to prevent MPS memory pressure
+        if clear_cache_every > 0 and num_batches % clear_cache_every == 0:
+            if device.type == "mps":
+                torch.mps.empty_cache()
+            elif device.type == "cuda":
+                torch.cuda.empty_cache()
+
+    # Final sync and cleanup
+    if device.type == "mps":
+        torch.mps.synchronize()
+    elif device.type == "cuda":
+        torch.cuda.synchronize()
 
     return total_loss / num_batches if num_batches > 0 else 0.0
 
@@ -114,6 +130,12 @@ def validate(
             predictions = (outputs > 0.5).float()
             correct += (predictions == targets).sum().item()
             total += targets.size(0)
+
+    # Sync for accurate timing
+    if device.type == "mps":
+        torch.mps.synchronize()
+    elif device.type == "cuda":
+        torch.cuda.synchronize()
 
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
     accuracy = correct / total if total > 0 else 0.0
@@ -179,6 +201,13 @@ def train(
 
         # Validate
         val_loss, val_acc = validate(model, val_loader, criterion, device)
+
+        # Clear memory between epochs to prevent MPS/CUDA memory pressure
+        gc.collect()
+        if device.type == "mps":
+            torch.mps.empty_cache()
+        elif device.type == "cuda":
+            torch.cuda.empty_cache()
 
         # Record history
         history["train_loss"].append(train_loss)

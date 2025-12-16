@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Quick test of training loop (2 epochs only)."""
 
+import gc
 import sys
 import time
 from pathlib import Path
@@ -11,6 +12,37 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Subset
+
+
+def get_memory_stats(device: torch.device) -> dict:
+    """Get memory statistics for the device."""
+    stats = {}
+    if device.type == "mps":
+        # MPS memory stats (limited API)
+        stats["allocated"] = torch.mps.current_allocated_memory() / 1024**2  # MB
+        stats["driver_allocated"] = torch.mps.driver_allocated_memory() / 1024**2  # MB
+    elif device.type == "cuda":
+        stats["allocated"] = torch.cuda.memory_allocated(device) / 1024**2
+        stats["reserved"] = torch.cuda.memory_reserved(device) / 1024**2
+    return stats
+
+
+def print_memory(device: torch.device, label: str):
+    """Print memory usage with a label."""
+    stats = get_memory_stats(device)
+    if device.type == "mps":
+        print(f"  [{label}] MPS Memory: allocated={stats['allocated']:.1f}MB, driver={stats['driver_allocated']:.1f}MB")
+    elif device.type == "cuda":
+        print(f"  [{label}] CUDA Memory: allocated={stats['allocated']:.1f}MB, reserved={stats['reserved']:.1f}MB")
+
+
+def clear_memory(device: torch.device):
+    """Clear device memory cache and run garbage collection."""
+    gc.collect()
+    if device.type == "mps":
+        torch.mps.empty_cache()
+    elif device.type == "cuda":
+        torch.cuda.empty_cache()
 
 from jebbot.data.encode import ChessPositionDataset
 from jebbot.model.style_selector import StyleSelector, get_model_size
@@ -58,12 +90,13 @@ def main():
     device = get_device()
     print(f"Using device: {device}")
 
-    # Load dataset
+    # Load dataset (cache_tensors=False to avoid memory pressure on MPS)
     print(f"\nLoading dataset from {positions_file}...")
-    dataset = ChessPositionDataset(positions_file)
+    dataset = ChessPositionDataset(positions_file, cache_tensors=False)
     num_positions = dataset.get_num_positions()
     print(f"Original positions: {num_positions:,}")
     print(f"With negatives (5x): {len(dataset):,}")
+    print(f"Tensor caching: {'enabled' if dataset.cache_tensors else 'disabled (saves memory)'}")
 
     # DEBUG: Check a few examples
     print("\n" + "=" * 60)
@@ -133,15 +166,22 @@ def main():
     print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
     print("-" * 60)
 
+    # Clear memory before training
+    clear_memory(device)
+    print_memory(device, "Before training")
+
     total_start = time.time()
     epochs = 2
 
     for epoch in range(1, epochs + 1):
+        print_memory(device, f"Epoch {epoch} start")
         epoch_start = time.time()
 
         # Train
         train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
         train_time = time.time() - epoch_start
+
+        print_memory(device, f"Epoch {epoch} after train")
 
         # Validate
         val_start = time.time()
@@ -157,6 +197,12 @@ def main():
             f"Val Acc: {val_acc:.4f} | "
             f"Time: {epoch_time:.1f}s (train: {train_time:.1f}s, val: {val_time:.1f}s)"
         )
+
+        # Clear memory between epochs
+        print_memory(device, f"Epoch {epoch} end (before clear)")
+        clear_memory(device)
+        print_memory(device, f"Epoch {epoch} end (after clear)")
+        print("-" * 60)
 
     total_time = time.time() - total_start
 

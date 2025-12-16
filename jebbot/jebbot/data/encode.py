@@ -102,16 +102,18 @@ class ChessPositionDataset(Dataset):
     Falls back to random legal moves if Stockfish analysis is not available.
     """
 
-    def __init__(self, positions_file: Path, seed: int = 42):
+    def __init__(self, positions_file: Path, seed: int = 42, cache_tensors: bool = False):
         """Initialize dataset from positions JSON file.
 
         Args:
             positions_file: Path to training_positions.json
             seed: Random seed for reproducible negative sampling
+            cache_tensors: Whether to cache position tensors (can cause memory issues)
         """
         self.positions_file = Path(positions_file)
         self.seed = seed
         self.rng = random.Random(seed)
+        self.cache_tensors = cache_tensors
 
         with open(self.positions_file) as f:
             self.positions = json.load(f)
@@ -123,10 +125,11 @@ class ChessPositionDataset(Dataset):
         )
 
         # Cache for legal moves per position (computed lazily, used as fallback)
+        # This is small (just lists of ints) so we keep it
         self._legal_moves_cache: dict[int, list[int]] = {}
 
-        # Cache for position tensors (computed lazily)
-        self._tensor_cache: dict[int, np.ndarray] = {}
+        # Cache for position tensors (disabled by default to avoid memory pressure)
+        self._tensor_cache: dict[int, np.ndarray] = {} if cache_tensors else None
 
     def _get_legal_moves(self, position_idx: int) -> list[int]:
         """Get list of legal move indices for a position (cached).
@@ -198,7 +201,7 @@ class ChessPositionDataset(Dataset):
         return [m for m in legal_moves if m != actual_move_idx]
 
     def _get_position_tensor(self, position_idx: int) -> np.ndarray:
-        """Get position tensor (cached).
+        """Get position tensor (optionally cached).
 
         Args:
             position_idx: Index into self.positions
@@ -206,6 +209,13 @@ class ChessPositionDataset(Dataset):
         Returns:
             numpy array of shape (12, 8, 8)
         """
+        # If caching is disabled, compute tensor each time
+        if self._tensor_cache is None:
+            position = self.positions[position_idx]
+            fen = position["fen"]
+            return fen_to_tensor(fen)
+
+        # Otherwise use cache
         if position_idx not in self._tensor_cache:
             position = self.positions[position_idx]
             fen = position["fen"]
