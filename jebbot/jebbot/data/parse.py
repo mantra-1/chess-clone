@@ -3,16 +3,96 @@
 import io
 import json
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional
 
 import chess
 import chess.pgn
+
+try:
+    from stockfish import Stockfish
+    STOCKFISH_AVAILABLE = True
+except ImportError:
+    STOCKFISH_AVAILABLE = False
 
 
 USERNAME = "jebhead"
 SKIP_FIRST_N_MOVES = 5
 # Results that indicate the game didn't end normally
 SKIP_RESULTS = {"timeout", "abandoned", "timevsinsufficient"}
+
+# Stockfish settings
+STOCKFISH_ELO = 1500
+STOCKFISH_TOP_N_MOVES = 10
+
+
+def get_stockfish_top_moves(
+    fen: str,
+    stockfish: "Stockfish",
+    num_moves: int = STOCKFISH_TOP_N_MOVES,
+) -> list[str]:
+    """Get top N moves from Stockfish for a position.
+
+    Args:
+        fen: FEN string of the position
+        stockfish: Initialized Stockfish instance
+        num_moves: Number of top moves to return
+
+    Returns:
+        List of UCI move strings (e.g., ["e2e4", "d2d4", ...])
+    """
+    try:
+        stockfish.set_fen_position(fen)
+        top_moves = stockfish.get_top_moves(num_moves)
+        return [move["Move"] for move in top_moves]
+    except Exception:
+        return []
+
+
+def init_stockfish(
+    path: Optional[str] = None,
+    elo: int = STOCKFISH_ELO,
+) -> Optional["Stockfish"]:
+    """Initialize Stockfish engine with ELO limit.
+
+    Args:
+        path: Path to stockfish binary (auto-detected if None)
+        elo: ELO rating limit for the engine
+
+    Returns:
+        Stockfish instance or None if not available
+    """
+    if not STOCKFISH_AVAILABLE:
+        print("Warning: stockfish package not installed")
+        return None
+
+    try:
+        # Common paths for stockfish binary
+        paths_to_try = [
+            path,
+            "/opt/homebrew/bin/stockfish",  # Mac M1/M2/M3 homebrew
+            "/usr/local/bin/stockfish",      # Mac Intel homebrew
+            "/usr/bin/stockfish",            # Linux
+            "stockfish",                      # In PATH
+        ]
+
+        stockfish = None
+        for p in paths_to_try:
+            if p is None:
+                continue
+            try:
+                stockfish = Stockfish(path=p)
+                break
+            except Exception:
+                continue
+
+        if stockfish is None:
+            stockfish = Stockfish()  # Let it auto-detect
+
+        stockfish.set_elo_rating(elo)
+        return stockfish
+    except Exception as e:
+        print(f"Warning: Could not initialize Stockfish: {e}")
+        return None
 
 
 def parse_game_to_positions(game_data: dict, username: str = USERNAME) -> list[dict]:
@@ -126,12 +206,18 @@ def process_all_games(
 def build_training_dataset(
     raw_dir: Path,
     username: str = USERNAME,
+    use_stockfish: bool = False,
+    stockfish_path: Optional[str] = None,
+    progress_callback: Optional[callable] = None,
 ) -> tuple[list[dict], dict]:
     """Build complete training dataset from raw games.
 
     Args:
         raw_dir: Directory containing raw JSON files
         username: Username to extract positions for
+        use_stockfish: Whether to add Stockfish analysis
+        stockfish_path: Path to stockfish binary
+        progress_callback: Optional callback(current, total, message) for progress
 
     Returns:
         Tuple of (positions list, stats dict)
@@ -142,6 +228,7 @@ def build_training_dataset(
     total_games = 0
     skipped_games = 0
 
+    # First pass: collect all positions
     for filepath in json_files:
         games = load_games_from_file(filepath)
         for game_data in games:
@@ -151,6 +238,23 @@ def build_training_dataset(
                 all_positions.extend(positions)
             else:
                 skipped_games += 1
+
+    # Second pass: add Stockfish analysis if requested
+    if use_stockfish:
+        stockfish = init_stockfish(stockfish_path)
+        if stockfish:
+            total = len(all_positions)
+            for i, position in enumerate(all_positions):
+                if progress_callback and i % 100 == 0:
+                    progress_callback(i, total, f"Analyzing position {i}/{total}")
+
+                top_moves = get_stockfish_top_moves(position["fen"], stockfish)
+                position["stockfish_top_moves"] = top_moves
+
+            if progress_callback:
+                progress_callback(total, total, "Stockfish analysis complete")
+        else:
+            print("Warning: Stockfish not available, skipping analysis")
 
     stats = {
         "total_games": total_games,
@@ -162,6 +266,41 @@ def build_training_dataset(
             if total_games > skipped_games
             else 0
         ),
+        "has_stockfish_analysis": use_stockfish and STOCKFISH_AVAILABLE,
     }
 
     return all_positions, stats
+
+
+def add_stockfish_to_positions(
+    positions: list[dict],
+    stockfish_path: Optional[str] = None,
+    progress_callback: Optional[callable] = None,
+) -> list[dict]:
+    """Add Stockfish top moves to existing positions.
+
+    Args:
+        positions: List of position dicts
+        stockfish_path: Path to stockfish binary
+        progress_callback: Optional callback(current, total, message) for progress
+
+    Returns:
+        Updated positions list with stockfish_top_moves field
+    """
+    stockfish = init_stockfish(stockfish_path)
+    if not stockfish:
+        print("Error: Could not initialize Stockfish")
+        return positions
+
+    total = len(positions)
+    for i, position in enumerate(positions):
+        if progress_callback and i % 100 == 0:
+            progress_callback(i, total, f"Analyzing position {i}/{total}")
+
+        top_moves = get_stockfish_top_moves(position["fen"], stockfish)
+        position["stockfish_top_moves"] = top_moves
+
+    if progress_callback:
+        progress_callback(total, total, "Complete")
+
+    return positions

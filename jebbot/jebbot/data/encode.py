@@ -93,10 +93,13 @@ class ChessPositionDataset(Dataset):
 
     For each position, returns:
     - 1 positive example: the move that was actually played (target = 1.0)
-    - 4 negative examples: random legal moves NOT played (target = 0.0)
+    - 4 negative examples: Stockfish top moves NOT played (target = 0.0)
 
-    This creates a balanced training signal where the model learns to
-    distinguish "Jeb-like" moves from other legal moves.
+    Negative examples are sampled from Stockfish's top 10 moves at 1500 ELO,
+    filtered to exclude the actual move Jeb played. This provides more
+    realistic "reasonable alternatives" than random legal moves.
+
+    Falls back to random legal moves if Stockfish analysis is not available.
     """
 
     def __init__(self, positions_file: Path, seed: int = 42):
@@ -113,7 +116,13 @@ class ChessPositionDataset(Dataset):
         with open(self.positions_file) as f:
             self.positions = json.load(f)
 
-        # Cache for legal moves per position (computed lazily)
+        # Check if stockfish analysis is available
+        self.has_stockfish = (
+            len(self.positions) > 0
+            and "stockfish_top_moves" in self.positions[0]
+        )
+
+        # Cache for legal moves per position (computed lazily, used as fallback)
         self._legal_moves_cache: dict[int, list[int]] = {}
 
         # Cache for position tensors (computed lazily)
@@ -141,6 +150,52 @@ class ChessPositionDataset(Dataset):
             self._legal_moves_cache[position_idx] = legal_indices
 
         return self._legal_moves_cache[position_idx]
+
+    def _get_negative_move_candidates(
+        self, position_idx: int, actual_move_idx: int
+    ) -> list[int]:
+        """Get candidate moves for negative examples.
+
+        Uses Stockfish top moves if available, falls back to legal moves.
+        Always excludes the actual move that was played.
+
+        Args:
+            position_idx: Index into self.positions
+            actual_move_idx: The move index to exclude (the actual move played)
+
+        Returns:
+            List of move indices suitable for negative examples
+        """
+        position = self.positions[position_idx]
+
+        # Try to use Stockfish top moves first
+        if self.has_stockfish and "stockfish_top_moves" in position:
+            stockfish_moves = position["stockfish_top_moves"]
+            # Convert UCI strings to indices
+            stockfish_indices = []
+            for move_uci in stockfish_moves:
+                try:
+                    idx = move_to_index(move_uci)
+                    stockfish_indices.append(idx)
+                except Exception:
+                    continue
+
+            # Filter out the actual move Jeb played
+            candidates = [m for m in stockfish_indices if m != actual_move_idx]
+
+            # If we have enough candidates from Stockfish, use them
+            if len(candidates) >= NUM_NEGATIVES:
+                return candidates
+
+            # If not enough Stockfish moves, supplement with random legal moves
+            legal_moves = self._get_legal_moves(position_idx)
+            legal_filtered = [m for m in legal_moves if m != actual_move_idx and m not in candidates]
+            candidates.extend(legal_filtered)
+            return candidates
+
+        # Fallback: use random legal moves
+        legal_moves = self._get_legal_moves(position_idx)
+        return [m for m in legal_moves if m != actual_move_idx]
 
     def _get_position_tensor(self, position_idx: int) -> np.ndarray:
         """Get position tensor (cached).
@@ -189,22 +244,18 @@ class ChessPositionDataset(Dataset):
             # Positive example: the move that was actually played
             return torch.from_numpy(tensor), actual_move_idx, 1.0
         else:
-            # Negative example: a random legal move that was NOT played
-            legal_moves = self._get_legal_moves(position_idx)
+            # Negative example: a move from Stockfish/legal moves that was NOT played
+            candidates = self._get_negative_move_candidates(position_idx, actual_move_idx)
 
-            # Filter out the actual move
-            negative_moves = [m for m in legal_moves if m != actual_move_idx]
-
-            if not negative_moves:
+            if not candidates:
                 # Edge case: only one legal move (very rare)
                 # Return the actual move but with target 0.0 to maintain dataset size
-                # This is a bit hacky but keeps things simple
                 return torch.from_numpy(tensor), actual_move_idx, 0.0
 
             # Use deterministic sampling based on idx for reproducibility
             # This ensures same negative is returned for same idx
             rng = random.Random(self.seed + idx)
-            negative_move_idx = rng.choice(negative_moves)
+            negative_move_idx = rng.choice(candidates)
 
             return torch.from_numpy(tensor), negative_move_idx, 0.0
 
@@ -222,3 +273,7 @@ class ChessPositionDataset(Dataset):
     def get_num_positions(self) -> int:
         """Get number of original positions (before expansion)."""
         return len(self.positions)
+
+    def has_stockfish_analysis(self) -> bool:
+        """Check if dataset has Stockfish analysis."""
+        return self.has_stockfish
