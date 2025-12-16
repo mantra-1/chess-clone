@@ -1,0 +1,10 @@
+[project]
+name = "jebbot"
+version = "0.1.0"
+description = "A neural network trained to play chess like me"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-chess>=1.999",
+    "requests>=2.32.5",
+]

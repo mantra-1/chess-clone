@@ -1,0 +1,12 @@
+# Data directory (top-level only)
+/data/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# macOS
+.DS_Store
