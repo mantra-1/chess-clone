@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Quick test of training loop (2 epochs only) - DEBUG VERSION."""
+"""Quick test of training loop (2 epochs only)."""
 
-import json
 import sys
 import time
 from pathlib import Path
@@ -15,7 +14,7 @@ from torch.utils.data import DataLoader, Subset
 
 from jebbot.data.encode import ChessPositionDataset
 from jebbot.model.style_selector import StyleSelector, get_model_size
-from jebbot.training.trainer import get_device
+from jebbot.training.trainer import get_device, train_epoch, validate
 
 
 def split_dataset(
@@ -62,7 +61,19 @@ def main():
     # Load dataset
     print(f"\nLoading dataset from {positions_file}...")
     dataset = ChessPositionDataset(positions_file)
-    print(f"Total positions: {len(dataset):,}")
+    num_positions = dataset.get_num_positions()
+    print(f"Original positions: {num_positions:,}")
+    print(f"With negatives (5x): {len(dataset):,}")
+
+    # DEBUG: Check a few examples
+    print("\n" + "=" * 60)
+    print("DEBUG: Sample examples from dataset")
+    print("=" * 60)
+    for i in range(10):
+        pos, move_idx, target = dataset[i]
+        position_idx = i // 5
+        variant = i % 5
+        print(f"  idx={i} (pos={position_idx}, var={variant}) → target={target}, move_idx={move_idx}")
 
     # Split dataset
     print("\nSplitting dataset (80% train, 10% val, 10% test)...")
@@ -70,22 +81,6 @@ def main():
     print(f"  Train: {len(train_set):,}")
     print(f"  Val:   {len(val_set):,}")
     print(f"  Test:  {len(test_set):,}")
-
-    # DEBUG: Print first 5 FENs from train and val to confirm different data
-    print("\n" + "=" * 60)
-    print("DEBUG: Checking train/val split")
-    print("=" * 60)
-    print("\nFirst 5 TRAIN positions (index, FEN):")
-    for i in range(5):
-        idx = train_set.indices[i]
-        meta = dataset.get_position_metadata(idx)
-        print(f"  [{idx}] {meta['fen'][:50]}...")
-
-    print("\nFirst 5 VAL positions (index, FEN):")
-    for i in range(5):
-        idx = val_set.indices[i]
-        meta = dataset.get_position_metadata(idx)
-        print(f"  [{idx}] {meta['fen'][:50]}...")
 
     # Create data loaders
     batch_size = 64
@@ -114,69 +109,86 @@ def main():
     criterion = nn.BCELoss()
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    # DEBUG: Test raw model outputs BEFORE any training
+    # DEBUG: Check initial model outputs
     print("\n" + "=" * 60)
-    print("DEBUG: Raw model outputs BEFORE training")
+    print("DEBUG: Initial model outputs (before training)")
     print("=" * 60)
     model.eval()
     with torch.no_grad():
-        for i, (positions, move_indices) in enumerate(train_loader):
-            if i >= 1:  # Just first batch
+        for i, (positions, move_indices, targets) in enumerate(train_loader):
+            if i >= 1:
                 break
             positions = positions.to(device)
             move_indices = move_indices.to(device)
             outputs = model(positions, move_indices)
-            print(f"Batch 0 - First 10 raw outputs: {outputs[:10].squeeze().tolist()}")
-            print(f"Output min: {outputs.min():.4f}, max: {outputs.max():.4f}, mean: {outputs.mean():.4f}")
+            print(f"  Output range: [{outputs.min():.3f}, {outputs.max():.3f}], mean: {outputs.mean():.3f}")
+            print(f"  Target range: [{targets.min():.1f}, {targets.max():.1f}], mean: {targets.mean():.3f}")
+            print(f"  Positive examples in batch: {(targets == 1.0).sum().item()}")
+            print(f"  Negative examples in batch: {(targets == 0.0).sum().item()}")
 
-    # DEBUG: Manual training loop with per-batch loss
+    # Train with timing
     print("\n" + "=" * 60)
-    print("DEBUG: Training with per-batch loss (first 10 batches)")
+    print("TRAINING (TEST - 2 EPOCHS)")
     print("=" * 60)
+    print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+    print("-" * 60)
 
-    model.train()
-    for batch_idx, (positions, move_indices) in enumerate(train_loader):
-        if batch_idx >= 10:
-            break
+    total_start = time.time()
+    epochs = 2
 
-        positions = positions.to(device)
-        move_indices = move_indices.to(device)
+    for epoch in range(1, epochs + 1):
+        epoch_start = time.time()
 
-        # Target is always 1.0 - THIS IS THE BUG!
-        targets = torch.ones(positions.size(0), 1, device=device)
+        # Train
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        train_time = time.time() - epoch_start
 
-        optimizer.zero_grad()
-        outputs = model(positions, move_indices)
-        loss = criterion(outputs, targets)
-        loss.backward()
-        optimizer.step()
+        # Validate
+        val_start = time.time()
+        val_loss, val_acc = validate(model, val_loader, criterion, device)
+        val_time = time.time() - val_start
 
-        print(f"Batch {batch_idx:2d} | Loss: {loss.item():.6f} | "
-              f"Output mean: {outputs.mean().item():.4f} | "
-              f"Output min: {outputs.min().item():.4f} | "
-              f"Output max: {outputs.max().item():.4f} | "
-              f"Target: always 1.0")
+        epoch_time = time.time() - epoch_start
 
+        print(
+            f"Epoch {epoch}/{epochs} | "
+            f"Train Loss: {train_loss:.4f} | "
+            f"Val Loss: {val_loss:.4f} | "
+            f"Val Acc: {val_acc:.4f} | "
+            f"Time: {epoch_time:.1f}s (train: {train_time:.1f}s, val: {val_time:.1f}s)"
+        )
+
+    total_time = time.time() - total_start
+
+    # DEBUG: Check final model outputs
     print("\n" + "=" * 60)
-    print("DIAGNOSIS")
+    print("DEBUG: Final model outputs (after training)")
     print("=" * 60)
-    print("""
-THE BUG: Every training example has target=1.0!
+    model.eval()
+    with torch.no_grad():
+        for i, (positions, move_indices, targets) in enumerate(val_loader):
+            if i >= 1:
+                break
+            positions = positions.to(device)
+            move_indices = move_indices.to(device)
+            outputs = model(positions, move_indices)
+            print(f"  Output range: [{outputs.min():.3f}, {outputs.max():.3f}], mean: {outputs.mean():.3f}")
 
-We're only showing the model moves the player DID make, so:
-- Input: position + move_that_was_played
-- Target: 1.0 (yes, player made this move)
+            # Show some predictions vs targets
+            print("  Sample predictions:")
+            for j in range(min(5, len(outputs))):
+                print(f"    pred={outputs[j].item():.3f}, target={targets[j].item():.1f}")
 
-The model quickly learns: "just output 1.0 for everything"
-This gives perfect accuracy and near-zero loss.
+    # Save test model
+    save_path = models_dir / "test_model.pt"
+    torch.save(model.state_dict(), save_path)
 
-FIX NEEDED: Add NEGATIVE examples where:
-- Input: position + move_player_did_NOT_make
-- Target: 0.0
-
-For each real move, sample 3-5 random legal moves as negatives.
-This makes the model actually learn which moves are "Jeb-like".
-""")
+    print("-" * 60)
+    print(f"\n✅ Training test complete!")
+    print(f"Total time: {total_time:.1f}s ({total_time/60:.1f} min)")
+    print(f"Avg time per epoch: {total_time/epochs:.1f}s")
+    print(f"Estimated full training (50 epochs): {total_time/epochs * 50 / 60:.1f} min")
+    print(f"Test model saved to: {save_path}")
 
 
 if __name__ == "__main__":

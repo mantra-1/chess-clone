@@ -72,7 +72,8 @@ def main():
     # Load dataset
     print(f"\nLoading dataset from {positions_file}...")
     dataset = ChessPositionDataset(positions_file)
-    print(f"Total positions: {len(dataset):,}")
+    print(f"Original positions: {dataset.get_num_positions():,}")
+    print(f"With negatives (5x): {len(dataset):,}")
 
     # Split dataset
     print("\nSplitting dataset (80% train, 10% val, 10% test)...")

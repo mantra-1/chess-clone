@@ -33,7 +33,7 @@ def train_epoch(
 
     Args:
         model: The neural network
-        dataloader: Training data loader
+        dataloader: Training data loader (returns position, move_idx, target)
         optimizer: Optimizer (e.g., Adam)
         criterion: Loss function (e.g., BCELoss)
         device: Device to train on
@@ -45,13 +45,11 @@ def train_epoch(
     total_loss = 0.0
     num_batches = 0
 
-    for positions, move_indices in dataloader:
+    for positions, move_indices, targets in dataloader:
         # Move data to device
         positions = positions.to(device)
         move_indices = move_indices.to(device)
-
-        # Create target labels (1.0 = player made this move)
-        targets = torch.ones(positions.size(0), 1, device=device)
+        targets = targets.to(device).float().unsqueeze(1)  # Shape: (batch, 1)
 
         # Zero gradients
         optimizer.zero_grad()
@@ -84,12 +82,12 @@ def validate(
 
     Args:
         model: The neural network
-        dataloader: Validation data loader
+        dataloader: Validation data loader (returns position, move_idx, target)
         criterion: Loss function
         device: Device to evaluate on
 
     Returns:
-        Tuple of (average loss, top-1 accuracy)
+        Tuple of (average loss, accuracy)
     """
     model.eval()
     total_loss = 0.0
@@ -98,13 +96,11 @@ def validate(
     num_batches = 0
 
     with torch.no_grad():
-        for positions, move_indices in dataloader:
+        for positions, move_indices, targets in dataloader:
             # Move data to device
             positions = positions.to(device)
             move_indices = move_indices.to(device)
-
-            # Target is 1.0 (player made this move)
-            targets = torch.ones(positions.size(0), 1, device=device)
+            targets = targets.to(device).float().unsqueeze(1)  # Shape: (batch, 1)
 
             # Forward pass
             outputs = model(positions, move_indices)
@@ -114,7 +110,7 @@ def validate(
             total_loss += loss.item()
             num_batches += 1
 
-            # Top-1 accuracy: model predicts >0.5 means it thinks player would make this move
+            # Accuracy: model predicts >0.5 for positive, <0.5 for negative
             predictions = (outputs > 0.5).float()
             correct += (predictions == targets).sum().item()
             total += targets.size(0)
