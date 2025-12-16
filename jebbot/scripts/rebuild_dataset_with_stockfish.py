@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
-"""Add Stockfish analysis to existing training dataset.
+"""Add Stockfish analysis to existing training dataset with multiprocessing.
 
 This script loads an existing training_positions.json file and adds
-stockfish_top_moves field to each position. This is useful for upgrading
-an existing dataset without re-parsing all games.
+stockfish_top_moves field to each position using parallel processing.
 
 Usage:
     # First install stockfish: brew install stockfish
     uv run python scripts/rebuild_dataset_with_stockfish.py
 
+    # Quick test with first 1000 positions
+    uv run python scripts/rebuild_dataset_with_stockfish.py --test
+
+    # Custom settings
+    uv run python scripts/rebuild_dataset_with_stockfish.py --workers 8 --depth 10
+
 The script will:
 1. Load existing data/processed/training_positions.json
-2. Analyze each position with Stockfish at 1500 ELO
-3. Add stockfish_top_moves (top 10 moves) to each position
+2. Analyze each position with Stockfish at 1500 ELO (depth 8)
+3. Add stockfish_top_moves (top 6 moves) to each position
 4. Save the updated file (backing up the original)
+
+Performance: ~20-30 minutes for 219K positions with 4-6 workers (vs ~1 day single-threaded)
 """
 
 import argparse
 import json
+import multiprocessing as mp
 import shutil
 import sys
 import time
@@ -26,7 +34,45 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from jebbot.data.parse import add_stockfish_to_positions, init_stockfish
+from jebbot.data.parse import (
+    STOCKFISH_DEPTH,
+    STOCKFISH_TOP_N_MOVES,
+    get_stockfish_top_moves,
+    init_stockfish,
+)
+
+
+# Global stockfish instance per worker process
+_worker_stockfish = None
+_worker_stockfish_path = None
+
+
+def init_worker(stockfish_path: str | None, depth: int):
+    """Initialize Stockfish for this worker process."""
+    global _worker_stockfish, _worker_stockfish_path
+    _worker_stockfish_path = stockfish_path
+    _worker_stockfish = init_stockfish(stockfish_path, depth=depth)
+    if _worker_stockfish is None:
+        raise RuntimeError("Could not initialize Stockfish in worker")
+
+
+def analyze_position(args: tuple) -> tuple[int, list[str]]:
+    """Analyze a single position with Stockfish.
+
+    Args:
+        args: Tuple of (index, fen, num_moves)
+
+    Returns:
+        Tuple of (index, list of top moves)
+    """
+    idx, fen, num_moves = args
+    global _worker_stockfish
+
+    if _worker_stockfish is None:
+        return idx, []
+
+    top_moves = get_stockfish_top_moves(fen, _worker_stockfish, num_moves)
+    return idx, top_moves
 
 
 def format_eta(seconds: float) -> str:
@@ -39,34 +85,9 @@ def format_eta(seconds: float) -> str:
         return str(timedelta(seconds=int(seconds)))
 
 
-def progress_callback(current: int, total: int, message: str):
-    """Print progress with ETA."""
-    if total > 0:
-        pct = current / total * 100
-        bar_width = 30
-        filled = int(bar_width * current / total)
-        bar = "█" * filled + "░" * (bar_width - filled)
-
-        # Calculate ETA
-        if current > 0:
-            elapsed = time.time() - progress_callback.start_time
-            rate = current / elapsed  # positions per second
-            remaining = total - current
-            eta = remaining / rate if rate > 0 else 0
-            eta_str = f"ETA: {format_eta(eta)}"
-        else:
-            eta_str = "ETA: calculating..."
-
-        print(f"\r[{bar}] {pct:5.1f}% ({current:,}/{total:,}) {eta_str}", end="", flush=True)
-
-        if current == total:
-            elapsed = time.time() - progress_callback.start_time
-            print(f"\nCompleted in {format_eta(elapsed)}")
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Add Stockfish analysis to existing training dataset"
+        description="Add Stockfish analysis to existing training dataset (multiprocessed)"
     )
     parser.add_argument(
         "--stockfish-path",
@@ -92,10 +113,33 @@ def main():
         help="Don't create backup of original file",
     )
     parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Only process first 1000 positions (for testing)",
+    )
+    parser.add_argument(
         "--sample",
         type=int,
         default=None,
         help="Only process first N positions (for testing)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: CPU count - 2, min 2)",
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=STOCKFISH_DEPTH,
+        help=f"Stockfish search depth (default: {STOCKFISH_DEPTH})",
+    )
+    parser.add_argument(
+        "--top-moves",
+        type=int,
+        default=STOCKFISH_TOP_N_MOVES,
+        help=f"Number of top moves to retrieve (default: {STOCKFISH_TOP_N_MOVES})",
     )
     args = parser.parse_args()
 
@@ -110,14 +154,23 @@ def main():
         print("Run build_dataset.py first to create training data")
         return
 
-    # Test Stockfish initialization
-    print("Initializing Stockfish...")
-    stockfish = init_stockfish(args.stockfish_path)
+    # Determine number of workers
+    if args.workers:
+        num_workers = args.workers
+    else:
+        num_workers = max(2, mp.cpu_count() - 2)
+
+    print(f"Using {num_workers} parallel workers")
+
+    # Test Stockfish initialization (single instance to verify it works)
+    print("Testing Stockfish initialization...")
+    stockfish = init_stockfish(args.stockfish_path, depth=args.depth)
     if not stockfish:
         print("\nError: Could not initialize Stockfish")
         print("Install it with: brew install stockfish")
         return
-    print(f"Stockfish initialized (ELO: 1500)")
+    print(f"Stockfish initialized (ELO: 1500, depth: {args.depth})")
+    del stockfish  # Close test instance
 
     # Load existing positions
     print(f"\nLoading positions from {input_file}...")
@@ -135,8 +188,11 @@ def main():
             print("Aborted.")
             return
 
-    # Sample for testing
-    if args.sample:
+    # Handle --test flag (1000 positions)
+    if args.test:
+        positions = positions[:1000]
+        print(f"TEST MODE: Processing only {len(positions):,} positions")
+    elif args.sample:
         positions = positions[:args.sample]
         print(f"Processing sample of {len(positions):,} positions")
 
@@ -146,20 +202,63 @@ def main():
         print(f"\nBacking up to {backup_file}...")
         shutil.copy(input_file, backup_file)
 
-    # Estimate time
-    print(f"\nAnalyzing {len(positions):,} positions with Stockfish...")
-    print("(This will take a while - ~0.05s per position)")
-    estimated_time = len(positions) * 0.05
+    # Prepare work items
+    work_items = [
+        (i, pos["fen"], args.top_moves)
+        for i, pos in enumerate(positions)
+    ]
+
+    total = len(work_items)
+
+    # Estimate time (with multiprocessing ~0.01-0.02s per position)
+    print(f"\nAnalyzing {total:,} positions with Stockfish...")
+    print(f"Settings: depth={args.depth}, top_moves={args.top_moves}, workers={num_workers}")
+    estimated_per_position = 0.02  # Conservative estimate with parallelism
+    estimated_time = (total * estimated_per_position) / num_workers
     print(f"Estimated time: {format_eta(estimated_time)}")
     print()
 
-    # Add Stockfish analysis
-    progress_callback.start_time = time.time()
-    positions = add_stockfish_to_positions(
-        positions,
-        stockfish_path=args.stockfish_path,
-        progress_callback=progress_callback,
-    )
+    # Process with multiprocessing
+    start_time = time.time()
+    completed = 0
+    results = {}
+
+    # Use imap_unordered for better progress tracking
+    with mp.Pool(
+        processes=num_workers,
+        initializer=init_worker,
+        initargs=(args.stockfish_path, args.depth),
+    ) as pool:
+        for idx, top_moves in pool.imap_unordered(analyze_position, work_items, chunksize=100):
+            results[idx] = top_moves
+            completed += 1
+
+            # Progress update every 1000 positions or at completion
+            if completed % 1000 == 0 or completed == total:
+                elapsed = time.time() - start_time
+                rate = completed / elapsed if elapsed > 0 else 0
+                remaining = total - completed
+                eta = remaining / rate if rate > 0 else 0
+
+                pct = completed / total * 100
+                bar_width = 30
+                filled = int(bar_width * completed / total)
+                bar = "█" * filled + "░" * (bar_width - filled)
+
+                print(
+                    f"\r[{bar}] {pct:5.1f}% ({completed:,}/{total:,}) "
+                    f"{rate:.1f} pos/s, ETA: {format_eta(eta)}",
+                    end="",
+                    flush=True,
+                )
+
+    # Final timing
+    elapsed = time.time() - start_time
+    print(f"\nCompleted in {format_eta(elapsed)} ({elapsed/total*1000:.1f}ms/position)")
+
+    # Apply results to positions
+    for idx, top_moves in results.items():
+        positions[idx]["stockfish_top_moves"] = top_moves
 
     # Save updated file
     print(f"\nSaving to {output_file}...")
@@ -175,21 +274,23 @@ def main():
         print(f"\n--- Position {i+1} ---")
         print(f"  FEN:              {pos['fen'][:50]}...")
         print(f"  Jeb's move:       {pos['move_uci']}")
-        print(f"  Stockfish top 10: {pos.get('stockfish_top_moves', [])}")
+        print(f"  Stockfish top {args.top_moves}:  {pos.get('stockfish_top_moves', [])}")
 
         # Check if Jeb's move was in Stockfish's top moves
         if "stockfish_top_moves" in pos:
             if pos["move_uci"] in pos["stockfish_top_moves"]:
                 rank = pos["stockfish_top_moves"].index(pos["move_uci"]) + 1
-                print(f"  Jeb's move rank:  #{rank} in Stockfish top 10")
+                print(f"  Jeb's move rank:  #{rank} in Stockfish top {args.top_moves}")
             else:
-                print(f"  Jeb's move rank:  Not in top 10 (unique style!)")
+                print(f"  Jeb's move rank:  Not in top {args.top_moves} (unique style!)")
 
     print("\n" + "=" * 60)
     print("DONE")
     print("=" * 60)
     print(f"Updated {len(positions):,} positions with Stockfish analysis")
     print(f"Output saved to: {output_file}")
+    print(f"Total time: {format_eta(elapsed)}")
+    print(f"Throughput: {len(positions)/elapsed:.1f} positions/second")
 
 
 if __name__ == "__main__":

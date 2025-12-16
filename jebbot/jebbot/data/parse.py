@@ -22,7 +22,8 @@ SKIP_RESULTS = {"timeout", "abandoned", "timevsinsufficient"}
 
 # Stockfish settings
 STOCKFISH_ELO = 1500
-STOCKFISH_TOP_N_MOVES = 10
+STOCKFISH_TOP_N_MOVES = 6  # Reduced from 10 for faster analysis
+STOCKFISH_DEPTH = 8  # Reduced from default ~15 for faster analysis
 
 
 def get_stockfish_top_moves(
@@ -51,12 +52,14 @@ def get_stockfish_top_moves(
 def init_stockfish(
     path: Optional[str] = None,
     elo: int = STOCKFISH_ELO,
+    depth: int = STOCKFISH_DEPTH,
 ) -> Optional["Stockfish"]:
-    """Initialize Stockfish engine with ELO limit.
+    """Initialize Stockfish engine with ELO limit and depth.
 
     Args:
         path: Path to stockfish binary (auto-detected if None)
         elo: ELO rating limit for the engine
+        depth: Search depth for analysis (lower = faster)
 
     Returns:
         Stockfish instance or None if not available
@@ -89,6 +92,7 @@ def init_stockfish(
             stockfish = Stockfish()  # Let it auto-detect
 
         stockfish.set_elo_rating(elo)
+        stockfish.set_depth(depth)
         return stockfish
     except Exception as e:
         print(f"Warning: Could not initialize Stockfish: {e}")
