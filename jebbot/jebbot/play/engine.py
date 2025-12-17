@@ -1,5 +1,6 @@
 """JebBot chess engine - uses trained model to select moves."""
 
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +10,40 @@ from stockfish import Stockfish
 
 from jebbot.data.encode import fen_to_tensor, move_to_index
 from jebbot.model.style_selector import StyleSelector
+
+# Common Stockfish paths to try
+STOCKFISH_PATHS = [
+    "/opt/homebrew/bin/stockfish",  # Mac Homebrew (Apple Silicon)
+    "/usr/local/bin/stockfish",  # Mac Homebrew (Intel) / Linux manual install
+    "/usr/bin/stockfish",  # Linux package manager
+]
+
+
+def find_stockfish() -> str:
+    """Find Stockfish binary path.
+
+    Returns:
+        Path to Stockfish binary
+
+    Raises:
+        FileNotFoundError: If Stockfish cannot be found
+    """
+    # First try to find in PATH
+    path_stockfish = shutil.which("stockfish")
+    if path_stockfish:
+        return path_stockfish
+
+    # Try common installation paths
+    for path in STOCKFISH_PATHS:
+        if Path(path).exists():
+            return path
+
+    raise FileNotFoundError(
+        "Stockfish not found. Please install it:\n"
+        "  Mac: brew install stockfish\n"
+        "  Ubuntu/Debian: sudo apt install stockfish\n"
+        "  Or download from https://stockfishchess.org/download/"
+    )
 
 
 class JebBotEngine:
@@ -36,8 +71,12 @@ class JebBotEngine:
         self.model.to(self.device)
         self.model.eval()
 
+        # Find Stockfish path if not provided
+        if stockfish_path is None:
+            stockfish_path = find_stockfish()
+
         # Initialize Stockfish
-        self.stockfish = Stockfish(path=stockfish_path)
+        self.stockfish = Stockfish(stockfish_path)
         self.stockfish.set_elo_rating(elo)
 
     def _get_device(self) -> torch.device:
