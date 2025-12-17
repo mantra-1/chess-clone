@@ -261,6 +261,34 @@
             font-weight: 600;
             color: #2a2520;
         }
+
+        /* Category explanation */
+        .category-explanation {
+            text-align: center;
+            padding: 12px 20px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #5a5550;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.5);
+        }
+
+        .examples-container.green .category-explanation {
+            background: rgba(92, 184, 92, 0.1);
+            color: #155724;
+        }
+        .examples-container.orange .category-explanation {
+            background: rgba(240, 173, 78, 0.1);
+            color: #856404;
+        }
+        .examples-container.red .category-explanation {
+            background: rgba(217, 83, 79, 0.1);
+            color: #721c24;
+        }
+        .examples-container.blue .category-explanation {
+            background: rgba(91, 192, 222, 0.1);
+            color: #004085;
+        }
     </style>
 </head>
 <body>
@@ -306,8 +334,17 @@
             'k': '\u265A', 'q': '\u265B', 'r': '\u265C', 'b': '\u265D', 'n': '\u265E', 'p': '\u265F'
         };
 
+        // Category explanations
+        const EXPLANATIONS = {
+            'high_confidence_correct': "Model correctly guessed these were Jeb's moves with high confidence (>90%). These are the patterns it learned best.",
+            'high_confidence_wrong': "Model thought these were Jeb's moves, but they were actually Stockfish suggestions. These patterns fooled the model.",
+            'missed_jeb_move': "These WERE Jeb's moves, but the model didn't recognize them (<15% confidence). Blind spots in the model.",
+            'confident_not_jeb': "Model correctly identified these as NOT Jeb's moves with high confidence. It learned what Jeb doesn't play."
+        };
+
         let data = null;
         let currentCategory = 'high_confidence_correct';
+        let showingMoved = false;  // Animation state: false = before move, true = after move
 
         // Parse FEN to board array
         function parseFEN(fen) {
@@ -343,10 +380,25 @@
             };
         }
 
+        // Apply move to board (returns new board with piece moved)
+        function applyMove(board, move) {
+            const newBoard = board.map(row => [...row]);
+            const piece = newBoard[move.from.row][move.from.col];
+            newBoard[move.from.row][move.from.col] = null;
+            newBoard[move.to.row][move.to.col] = piece;
+            return newBoard;
+        }
+
         // Create board HTML with highlighted move
-        function createBoardHTML(fen, move) {
-            const board = parseFEN(fen);
+        // afterMove: if true, show position after move was made
+        function createBoardHTML(fen, move, afterMove = false) {
+            let board = parseFEN(fen);
             const parsed = parseMove(move);
+
+            // If showing after move, apply the move to the board
+            if (afterMove && parsed) {
+                board = applyMove(board, parsed);
+            }
 
             let html = '<div class="board">';
             for (let row = 0; row < 8; row++) {
@@ -356,10 +408,12 @@
 
                     // Highlight move squares
                     if (parsed) {
-                        if (parsed.from.row === row && parsed.from.col === col) {
+                        if (!afterMove && parsed.from.row === row && parsed.from.col === col) {
+                            // Before move: highlight FROM square
                             squareClass += ' highlight-from';
                         }
-                        if (parsed.to.row === row && parsed.to.col === col) {
+                        if (afterMove && parsed.to.row === row && parsed.to.col === col) {
+                            // After move: highlight TO square
                             squareClass += ' highlight-to';
                         }
                     }
@@ -379,11 +433,13 @@
         }
 
         // Create example card
-        function createExampleCard(example) {
+        function createExampleCard(example, index) {
             const confidence = (example.confidence * 100).toFixed(1);
             return `
-                <div class="example-card">
-                    ${createBoardHTML(example.fen, example.move)}
+                <div class="example-card" data-index="${index}" data-fen="${example.fen}" data-move="${example.move}">
+                    <div class="board-container">
+                        ${createBoardHTML(example.fen, example.move, showingMoved)}
+                    </div>
                     <div class="example-info">
                         <div class="move-uci">${example.move}</div>
                         <div class="confidence-display">${confidence}%</div>
@@ -403,6 +459,7 @@
 
             if (examples.length === 0) {
                 container.innerHTML = `
+                    <div class="category-explanation">${EXPLANATIONS[category]}</div>
                     <div class="empty-state">
                         <h3>No examples in this category</h3>
                         <p>The model didn't produce any examples matching this criteria during training.</p>
@@ -412,10 +469,24 @@
             }
 
             container.innerHTML = `
+                <div class="category-explanation">${EXPLANATIONS[category]}</div>
                 <div class="examples-grid">
-                    ${examples.map(createExampleCard).join('')}
+                    ${examples.map((ex, i) => createExampleCard(ex, i)).join('')}
                 </div>
             `;
+        }
+
+        // Update all boards for animation (without re-rendering everything)
+        function updateBoardsAnimation() {
+            const cards = document.querySelectorAll('.example-card');
+            cards.forEach(card => {
+                const fen = card.dataset.fen;
+                const move = card.dataset.move;
+                const boardContainer = card.querySelector('.board-container');
+                if (boardContainer && fen && move) {
+                    boardContainer.innerHTML = createBoardHTML(fen, move, showingMoved);
+                }
+            });
         }
 
         // Update tab active state
@@ -470,6 +541,12 @@
 
         // Load on start
         loadData();
+
+        // Animation loop: toggle board state every 1.5 seconds
+        setInterval(() => {
+            showingMoved = !showingMoved;
+            updateBoardsAnimation();
+        }, 1500);
     </script>
 </body>
 </html>
