@@ -79,16 +79,38 @@
             border-radius: 6px;
             padding: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 3px solid transparent;
+            transition: border-color 0.3s ease;
+        }
+
+        .board-wrapper.correct {
+            border-color: #5cb85c;
+            animation: flash-green 0.5s ease;
+        }
+
+        .board-wrapper.wrong {
+            border-color: #d9534f;
+            animation: flash-red 0.5s ease;
+        }
+
+        @keyframes flash-green {
+            0% { background: #f5f2ed; }
+            50% { background: #d4edda; }
+            100% { background: #f5f2ed; }
+        }
+
+        @keyframes flash-red {
+            0% { background: #f5f2ed; }
+            50% { background: #f8d7da; }
+            100% { background: #f5f2ed; }
         }
 
         .board-info {
-            font-size: 10px;
-            color: #7a7570;
+            font-size: 11px;
+            color: #5a5550;
             margin-bottom: 4px;
-            height: 14px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            text-align: center;
+            font-weight: 500;
         }
 
         .board {
@@ -117,21 +139,12 @@
             background: #c9bfb0;
         }
 
-        .square.actual-move {
+        .square.highlight {
             background: #8cc9a3 !important;
-        }
-
-        .square.predicted-move {
-            background: #94bbe0 !important;
-        }
-
-        .square.both-moves {
-            background: linear-gradient(135deg, #8cc9a3 50%, #94bbe0 50%) !important;
         }
 
         .piece {
             user-select: none;
-            transition: transform 0.25s ease;
         }
 
         .piece.white {
@@ -143,25 +156,74 @@
             color: #2a2520;
         }
 
-        .move-label {
-            font-size: 9px;
-            color: #5a5550;
-            margin-top: 4px;
+        .move-info {
+            margin-top: 6px;
+            text-align: center;
+        }
+
+        .move-uci {
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: #2a2520;
+        }
+
+        .prediction {
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            margin-top: 4px;
+            font-size: 11px;
         }
 
-        .move-label .actual {
-            color: #4a9960;
+        .confidence {
+            color: #5a5550;
         }
 
-        .move-label .predicted {
-            color: #4a7fb0;
-        }
-
-        .move-label .correct {
-            color: #4a9960;
+        .confidence-value {
             font-weight: 600;
+            color: #2a2520;
+        }
+
+        .actual-label {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+
+        .actual-label.jeb {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .actual-label.not-jeb {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .confidence-bar {
+            height: 4px;
+            background: #d4cec5;
+            margin-top: 4px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .confidence-fill.high {
+            background: #5cb85c;
+        }
+
+        .confidence-fill.medium {
+            background: #f0ad4e;
+        }
+
+        .confidence-fill.low {
+            background: #d9534f;
         }
 
         .legend {
@@ -179,18 +241,21 @@
             gap: 6px;
         }
 
-        .legend-color {
+        .legend-box {
             width: 14px;
             height: 14px;
             border-radius: 2px;
+            border: 2px solid;
         }
 
-        .legend-color.actual {
-            background: #8cc9a3;
+        .legend-box.correct {
+            border-color: #5cb85c;
+            background: #d4edda;
         }
 
-        .legend-color.predicted {
-            background: #94bbe0;
+        .legend-box.wrong {
+            border-color: #d9534f;
+            background: #f8d7da;
         }
 
         .waiting {
@@ -198,20 +263,7 @@
             color: #7a7570;
             font-size: 14px;
             padding: 40px;
-        }
-
-        .confidence-bar {
-            height: 3px;
-            background: #d4cec5;
-            margin-top: 4px;
-            border-radius: 2px;
-            overflow: hidden;
-        }
-
-        .confidence-fill {
-            height: 100%;
-            background: #94bbe0;
-            transition: width 0.3s ease;
+            grid-column: span 3;
         }
     </style>
 </head>
@@ -247,12 +299,12 @@
 
     <div class="legend">
         <div class="legend-item">
-            <div class="legend-color actual"></div>
-            <span>My Move</span>
+            <div class="legend-box correct"></div>
+            <span>Correct prediction</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color predicted"></div>
-            <span>Model Guess</span>
+            <div class="legend-box wrong"></div>
+            <span>Wrong prediction</span>
         </div>
     </div>
 
@@ -308,9 +360,8 @@
         }
 
         // Create board HTML
-        function createBoardHTML(board, actualMove, predictedMove, showMoves = false) {
-            const actual = parseMove(actualMove);
-            const predicted = parseMove(predictedMove);
+        function createBoardHTML(board, move, showMove = false) {
+            const parsed = parseMove(move);
 
             let html = '<div class="board">';
             for (let row = 0; row < 8; row++) {
@@ -318,17 +369,9 @@
                     const isLight = (row + col) % 2 === 0;
                     let squareClass = `square ${isLight ? 'light' : 'dark'}`;
 
-                    if (showMoves) {
-                        const isActualTo = actual && actual.to.row === row && actual.to.col === col;
-                        const isPredictedTo = predicted && predicted.to.row === row && predicted.to.col === col;
-
-                        if (isActualTo && isPredictedTo) {
-                            squareClass += ' both-moves';
-                        } else if (isActualTo) {
-                            squareClass += ' actual-move';
-                        } else if (isPredictedTo) {
-                            squareClass += ' predicted-move';
-                        }
+                    // Highlight the destination square when showing the move
+                    if (showMove && parsed && parsed.to.row === row && parsed.to.col === col) {
+                        squareClass += ' highlight';
                     }
 
                     const piece = board[row][col];
@@ -345,30 +388,36 @@
             return html;
         }
 
-        // Create board wrapper
-        function createBoardWrapper(position, index, showMoves = false) {
+        // Create board wrapper for a position
+        function createBoardWrapper(position, index, showResult = false) {
             const board = parseFEN(position.fen);
-            const displayBoard = showMoves ? applyMove(board, parseMove(position.actual_move)) : board;
+            const move = parseMove(position.move);
+            const displayBoard = showResult && move ? applyMove(board, move) : board;
 
-            const isCorrect = position.actual_move === position.predicted_move;
             const confidence = (position.confidence * 100).toFixed(0);
+            const isJeb = position.label >= 0.5;
+            const isCorrect = position.correct;
 
-            let moveLabel = '';
-            if (showMoves) {
-                if (isCorrect) {
-                    moveLabel = `<span class="correct">Correct: ${position.actual_move}</span>`;
-                } else {
-                    moveLabel = `<span class="actual">${position.actual_move}</span> <span class="predicted">${position.predicted_move}</span>`;
-                }
-            }
+            // Determine confidence bar color
+            let confClass = 'medium';
+            if (position.confidence > 0.7) confClass = 'high';
+            else if (position.confidence < 0.3) confClass = 'low';
+
+            const wrapperClass = showResult ? (isCorrect ? 'correct' : 'wrong') : '';
 
             return `
-                <div class="board-wrapper" id="board-${index}">
-                    <div class="board-info">Position ${index + 1}</div>
-                    ${createBoardHTML(displayBoard, position.actual_move, position.predicted_move, showMoves)}
-                    <div class="move-label">${moveLabel}</div>
+                <div class="board-wrapper ${wrapperClass}" id="board-${index}">
+                    <div class="board-info">Evaluating move...</div>
+                    ${createBoardHTML(displayBoard, position.move, showResult)}
+                    <div class="move-info">
+                        <span class="move-uci">${position.move}</span>
+                    </div>
+                    <div class="prediction">
+                        <span class="confidence">Model: <span class="confidence-value">${confidence}%</span></span>
+                        <span class="actual-label ${isJeb ? 'jeb' : 'not-jeb'}">${isJeb ? "Jeb's Move" : "Not Jeb"}</span>
+                    </div>
                     <div class="confidence-bar">
-                        <div class="confidence-fill" style="width: ${showMoves ? confidence : 0}%"></div>
+                        <div class="confidence-fill ${confClass}" style="width: ${showResult ? confidence : 0}%"></div>
                     </div>
                 </div>
             `;
@@ -376,28 +425,26 @@
 
         // State
         let lastTimestamp = 0;
-        let currentPositions = [];
-        let animationPhase = 0;
         let animating = false;
 
         // Animate boards
         async function animateBoards(positions) {
             if (animating || positions.length === 0) return;
             animating = true;
-            currentPositions = positions.slice(0, 6);
 
             const container = document.getElementById('boards');
+            const displayPositions = positions.slice(0, 6);
 
-            // Phase 1: Show starting positions
-            container.innerHTML = currentPositions.map((p, i) => createBoardWrapper(p, i, false)).join('');
+            // Phase 1: Show starting positions (before move)
+            container.innerHTML = displayPositions.map((p, i) => createBoardWrapper(p, i, false)).join('');
 
             // Wait
             await new Promise(r => setTimeout(r, 300));
 
-            // Phase 2: Show moves applied with highlights
-            container.innerHTML = currentPositions.map((p, i) => createBoardWrapper(p, i, true)).join('');
+            // Phase 2: Show move applied with result (correct/wrong flash)
+            container.innerHTML = displayPositions.map((p, i) => createBoardWrapper(p, i, true)).join('');
 
-            // Wait for next update
+            // Wait for animation
             await new Promise(r => setTimeout(r, 700));
 
             animating = false;

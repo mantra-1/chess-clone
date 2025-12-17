@@ -21,6 +21,50 @@ from jebbot.model.style_selector import StyleSelector, get_model_size
 from jebbot.training.trainer import get_device, validate
 
 
+# Piece characters for FEN reconstruction
+CHANNEL_TO_PIECE = ['P', 'N', 'B', 'R', 'Q', 'K', 'p', 'n', 'b', 'r', 'q', 'k']
+
+
+def tensor_to_fen(position_tensor: torch.Tensor) -> str:
+    """Convert position tensor back to FEN string.
+
+    Args:
+        position_tensor: Tensor of shape (12, 8, 8)
+
+    Returns:
+        FEN string (board position only, with default castling/en passant)
+    """
+    # Convert to numpy if needed
+    if isinstance(position_tensor, torch.Tensor):
+        position_tensor = position_tensor.cpu().numpy()
+
+    rows = []
+    for rank in range(7, -1, -1):  # FEN goes from rank 8 to rank 1
+        row = ""
+        empty_count = 0
+        for file in range(8):
+            piece = None
+            for channel in range(12):
+                if position_tensor[channel, rank, file] > 0.5:
+                    piece = CHANNEL_TO_PIECE[channel]
+                    break
+
+            if piece:
+                if empty_count > 0:
+                    row += str(empty_count)
+                    empty_count = 0
+                row += piece
+            else:
+                empty_count += 1
+
+        if empty_count > 0:
+            row += str(empty_count)
+        rows.append(row)
+
+    # Add default values for other FEN fields
+    return "/".join(rows) + " w - - 0 1"
+
+
 def split_dataset(
     dataset: ChessPositionDataset,
     train_ratio: float = 0.8,
@@ -44,81 +88,6 @@ def split_dataset(
         Subset(dataset, val_indices),
         Subset(dataset, test_indices),
     )
-
-
-def sample_positions_for_visualization(
-    dataset: ChessPositionDataset,
-    model: nn.Module,
-    positions_batch: torch.Tensor,
-    move_indices_batch: torch.Tensor,
-    targets_batch: torch.Tensor,
-    device: torch.device,
-    num_samples: int = 6,
-) -> list[dict]:
-    """Sample positions and get model predictions for visualization.
-
-    Args:
-        dataset: The dataset (to get FEN strings)
-        model: The trained model
-        positions_batch: Batch of position tensors
-        move_indices_batch: Batch of move indices
-        targets_batch: Batch of targets
-        device: Device to run on
-        num_samples: Number of positions to sample
-
-    Returns:
-        List of dicts with fen, actual_move, predicted_move, confidence
-    """
-    model.eval()
-
-    # Get batch size and sample indices
-    batch_size = positions_batch.size(0)
-    if batch_size < num_samples:
-        sample_indices = list(range(batch_size))
-    else:
-        sample_indices = random.sample(range(batch_size), num_samples)
-
-    results = []
-
-    with torch.no_grad():
-        for idx in sample_indices:
-            position = positions_batch[idx:idx+1].to(device)
-            actual_move_idx = move_indices_batch[idx].item()
-            target = targets_batch[idx].item()
-
-            # Get model's confidence for this move
-            move_tensor = move_indices_batch[idx:idx+1].to(device)
-            confidence = model(position, move_tensor).item()
-
-            # For visualization, we need to find the model's best move
-            # Test a sample of legal moves to find highest confidence
-            # (Full search over 4096 moves is too slow)
-            best_pred_idx = actual_move_idx
-            best_conf = confidence
-
-            # Sample some alternative moves to compare
-            for _ in range(20):
-                alt_move = random.randint(0, 4095)
-                alt_tensor = torch.tensor([alt_move], device=device)
-                alt_conf = model(position, alt_tensor).item()
-                if alt_conf > best_conf:
-                    best_conf = alt_conf
-                    best_pred_idx = alt_move
-
-            # Convert to FEN (reconstruct from tensor - simplified)
-            # For now, use a placeholder FEN since we don't have direct access
-            # In practice, we'd need to store FEN or pass dataset indices
-            fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-
-            results.append({
-                "fen": fen,
-                "actual_move": index_to_move(actual_move_idx),
-                "predicted_move": index_to_move(best_pred_idx),
-                "confidence": best_conf,
-            })
-
-    model.train()
-    return results
 
 
 def train_with_visualization(
@@ -194,6 +163,9 @@ def train_with_visualization(
         num_batches = 0
 
         for batch_idx, (positions, move_indices, targets) in enumerate(train_loader):
+            # Keep original targets for visualization before transformation
+            original_targets = targets.clone()
+
             # Move data to device
             positions = positions.to(device)
             move_indices = move_indices.to(device)
@@ -219,23 +191,40 @@ def train_with_visualization(
 
             # Visualization update every N batches
             if send_update and batch_idx > 0 and batch_idx % vis_every == 0:
-                # Sample positions for visualization
+                # Sample 6 positions for visualization
                 vis_positions = []
-                for i in range(min(6, positions.size(0))):
-                    move_idx = move_indices[i].item()
+                sample_size = min(6, positions.size(0))
+                sample_indices = random.sample(range(positions.size(0)), sample_size)
 
-                    # Get model's prediction confidence
+                for i in sample_indices:
+                    # Get the position tensor and reconstruct FEN
+                    pos_tensor = positions[i].cpu()
+                    fen = tensor_to_fen(pos_tensor)
+
+                    # Get move in UCI format
+                    move_idx = move_indices[i].item()
+                    move_uci = index_to_move(move_idx)
+
+                    # Get model's confidence (already computed in outputs)
                     with torch.no_grad():
                         conf = outputs[i].item()
 
-                    # Find a contrasting move for visualization
-                    pred_move_idx = move_idx  # Default to actual
+                    # Get actual label
+                    label = original_targets[i].item()
+
+                    # Determine if prediction is correct
+                    # Model predicts "Jeb" if confidence > 0.5
+                    # Label is 1.0 for Jeb's move, 0.0 for not Jeb
+                    predicted_jeb = conf > 0.5
+                    actual_jeb = label >= 0.5
+                    correct = predicted_jeb == actual_jeb
 
                     vis_positions.append({
-                        "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-                        "actual_move": index_to_move(move_idx),
-                        "predicted_move": index_to_move(pred_move_idx),
+                        "fen": fen,
+                        "move": move_uci,
                         "confidence": conf,
+                        "label": label,
+                        "correct": correct,
                     })
 
                 send_update(

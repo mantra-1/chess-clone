@@ -31,11 +31,12 @@ def send_update(
         train_loss: Current training loss
         val_loss: Current validation loss (0 if not yet computed)
         val_accuracy: Current validation accuracy (0 if not yet computed)
-        positions: List of position dicts with keys:
-            - fen: FEN string of the position
-            - actual_move: UCI notation of the actual move played
-            - predicted_move: UCI notation of model's predicted move
-            - confidence: Model's confidence (0-1)
+        positions: List of position dicts for visualization. Each dict has:
+            - fen: FEN string of the board position
+            - move: UCI notation of the move being evaluated (e.g., "e2e4")
+            - confidence: Model's output probability (0.0 to 1.0)
+            - label: Actual label (1.0 = Jeb's move, 0.0 = not Jeb's move)
+            - correct: Boolean, whether prediction matches label
         url: Server URL to POST to
         timeout: Request timeout in seconds
 
