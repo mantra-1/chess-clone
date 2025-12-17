@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, Subset
 
 from jebbot.data.encode import ChessPositionDataset, index_to_move
 from jebbot.model.style_selector import StyleSelector, get_model_size
+from jebbot.training.interesting_examples import InterestingExamplesLogger
 from jebbot.training.trainer import get_device, validate
 
 
@@ -148,6 +149,9 @@ def train_with_visualization(
         "best_epoch": 0,
     }
 
+    # Create interesting examples logger
+    examples_logger = InterestingExamplesLogger()
+
     best_val_loss = float("inf")
     patience_counter = 0
     patience = 10
@@ -238,6 +242,30 @@ def train_with_visualization(
                     positions=vis_positions,
                 )
 
+            # Log interesting examples every N batches (same schedule as visualization)
+            if batch_idx > 0 and batch_idx % vis_every == 0:
+                # Collect batch data for logging
+                batch_fens = []
+                batch_moves = []
+                batch_confs = []
+                batch_labels = []
+
+                with torch.no_grad():
+                    for i in range(positions.size(0)):
+                        batch_fens.append(tensor_to_fen(positions[i].cpu()))
+                        batch_moves.append(index_to_move(move_indices[i].item()))
+                        batch_confs.append(outputs[i].item())
+                        batch_labels.append(original_targets[i].item())
+
+                examples_logger.log_batch(
+                    fens=batch_fens,
+                    moves=batch_moves,
+                    confidences=batch_confs,
+                    labels=batch_labels,
+                    epoch=epoch,
+                    batch=batch_idx,
+                )
+
             # Clear MPS cache periodically
             if num_batches % 1000 == 0:
                 if device.type == "mps":
@@ -317,6 +345,16 @@ def train_with_visualization(
     print("-" * 60)
     print(f"Training complete. Best epoch: {history['best_epoch']}")
     print(f"Best val loss: {best_val_loss:.4f}")
+
+    # Save interesting examples
+    examples_path = save_dir / "interesting_examples.json"
+    examples_logger.save(examples_path)
+    summary = examples_logger.get_summary()
+    print(f"Saved interesting examples to {examples_path}")
+    print(f"  High confidence correct: {summary['high_confidence_correct']}")
+    print(f"  High confidence wrong: {summary['high_confidence_wrong']}")
+    print(f"  Missed Jeb moves: {summary['missed_jeb_move']}")
+    print(f"  Confident not-Jeb: {summary['confident_not_jeb']}")
 
     return history
 
