@@ -136,7 +136,7 @@ def train_with_visualization(
             print("Warning: Visualization module not found")
 
     model = model.to(device)
-    optimizer = Adam(model.parameters(), lr=lr, weight_decay=0.01)
+    optimizer = Adam(model.parameters(), lr=lr, weight_decay=0.0001)
     criterion = nn.BCELoss()
 
     save_dir = Path(save_dir)
