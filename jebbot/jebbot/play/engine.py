@@ -176,7 +176,12 @@ class JebBotEngine:
         return scores
 
     def select_move(self, fen: str, n_candidates: int = 5) -> dict:
-        """Select the best "Jeb-like" move from candidates.
+        """Select a move balancing Stockfish quality with Jeb's style.
+
+        Selection logic:
+        1. Find first Stockfish move with >50% Jeb score ("safe pick")
+        2. If another move has Jeb score 15%+ higher, play that instead
+        3. If no move is >50% Jeb, fall back to highest Jeb score
 
         Args:
             fen: FEN string of current position
@@ -186,10 +191,11 @@ class JebBotEngine:
             Dict with:
                 - selected_move: UCI string of chosen move
                 - candidates: List of {move, score, algebraic} dicts
+                - selection_reason: "safe_pick", "strong_jeb_preference", or "fallback"
         """
         board = chess.Board(fen)
 
-        # Get candidate moves from Stockfish
+        # Get candidate moves from Stockfish (ranked by quality)
         candidates = self.get_candidates(fen, n_candidates)
 
         if not candidates:
@@ -198,7 +204,7 @@ class JebBotEngine:
             if legal_moves:
                 candidates = [legal_moves[0].uci()]
             else:
-                return {"selected_move": None, "candidates": []}
+                return {"selected_move": None, "candidates": [], "selection_reason": "no_moves"}
 
         # Score all candidates
         scores = self.score_moves(fen, candidates)
@@ -218,13 +224,42 @@ class JebBotEngine:
                 "algebraic": algebraic,
             })
 
-        # Select move with highest "Jeb score"
-        best_idx = max(range(len(scores)), key=lambda i: scores[i])
-        selected_move = candidates[best_idx]
+        # New selection logic
+        JEB_THRESHOLD = 0.50  # Minimum score to be considered "Jeb-like"
+        PREFERENCE_MARGIN = 0.15  # How much higher to override safe pick
+
+        # Find safe pick: first Stockfish move (best quality) with >50% Jeb score
+        safe_pick_idx = None
+        for i, score in enumerate(scores):
+            if score > JEB_THRESHOLD:
+                safe_pick_idx = i
+                break
+
+        if safe_pick_idx is not None:
+            safe_pick_score = scores[safe_pick_idx]
+
+            # Check if any move has significantly higher Jeb score
+            best_jeb_idx = max(range(len(scores)), key=lambda i: scores[i])
+            best_jeb_score = scores[best_jeb_idx]
+
+            if best_jeb_score >= safe_pick_score + PREFERENCE_MARGIN:
+                # Strong Jeb preference - play the more Jeb-like move
+                selected_move = candidates[best_jeb_idx]
+                selection_reason = "strong_jeb_preference"
+            else:
+                # Play the safe pick (good chess + acceptable Jeb score)
+                selected_move = candidates[safe_pick_idx]
+                selection_reason = "safe_pick"
+        else:
+            # No move is >50% Jeb, fall back to highest Jeb score
+            best_idx = max(range(len(scores)), key=lambda i: scores[i])
+            selected_move = candidates[best_idx]
+            selection_reason = "fallback"
 
         return {
             "selected_move": selected_move,
             "candidates": results,
+            "selection_reason": selection_reason,
         }
 
     def get_stockfish_move(self, fen: str) -> str:
