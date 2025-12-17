@@ -29,6 +29,9 @@ class StyleSelector(nn.Module):
         self.fc2 = nn.Linear(256, 64)
         self.fc3 = nn.Linear(64, 1)
 
+        # Dropout for regularization
+        self.dropout = nn.Dropout(0.3)
+
         # Activation functions
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
@@ -59,9 +62,9 @@ class StyleSelector(nn.Module):
         # Concatenate position features and move embedding
         x = torch.cat([x, move_emb], dim=1)
 
-        # Fully connected layers
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
+        # Fully connected layers with dropout
+        x = self.dropout(self.relu(self.fc1(x)))
+        x = self.dropout(self.relu(self.fc2(x)))
         x = self.sigmoid(self.fc3(x))
 
         return x
