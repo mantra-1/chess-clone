@@ -22,8 +22,8 @@ PIECE_TO_CHANNEL = {
     chess.KING: 5,
 }
 
-# Number of negative examples per positive example
-NUM_NEGATIVES = 4
+# Number of negative examples per positive example (1:1 ratio for balanced classes)
+NUM_NEGATIVES = 1
 
 
 def fen_to_tensor(fen: str) -> np.ndarray:
@@ -89,15 +89,20 @@ def index_to_move(index: int) -> str:
 
 
 class ChessPositionDataset(Dataset):
-    """PyTorch Dataset for chess positions with positive and negative examples.
+    """PyTorch Dataset for chess positions with balanced positive/negative examples.
 
-    For each position, returns:
+    For each position, returns 2 examples (1:1 ratio):
     - 1 positive example: the move that was actually played (target = 1.0)
-    - 4 negative examples: Stockfish top moves NOT played (target = 0.0)
+    - 1 negative example: a good move Jeb didn't play (target = 0.0)
 
-    Negative examples are sampled from Stockfish's top 10 moves at 1500 ELO,
-    filtered to exclude the actual move Jeb played. This provides more
-    realistic "reasonable alternatives" than random legal moves.
+    This balanced ratio means:
+    - 50% positive examples (Jeb's actual moves)
+    - 50% negative examples (reasonable alternatives)
+    - Random baseline accuracy is 50% (model can't cheat by always guessing "no")
+
+    Negative examples are sampled from Stockfish's top moves at 1500 ELO,
+    filtered to exclude the actual move Jeb played. This provides realistic
+    "reasonable alternatives" rather than random legal moves.
 
     Falls back to random legal moves if Stockfish analysis is not available.
     """
@@ -157,7 +162,7 @@ class ChessPositionDataset(Dataset):
     def _get_negative_move_candidates(
         self, position_idx: int, actual_move_idx: int
     ) -> list[int]:
-        """Get candidate moves for negative examples.
+        """Get candidate moves for the negative example.
 
         Uses Stockfish top moves if available, falls back to legal moves.
         Always excludes the actual move that was played.
@@ -167,36 +172,28 @@ class ChessPositionDataset(Dataset):
             actual_move_idx: The move index to exclude (the actual move played)
 
         Returns:
-            List of move indices suitable for negative examples
+            List of move indices suitable for negative example (we pick one)
         """
         position = self.positions[position_idx]
 
         # Try to use Stockfish top moves first
         if self.has_stockfish and "stockfish_top_moves" in position:
             stockfish_moves = position["stockfish_top_moves"]
-            # Convert UCI strings to indices
-            stockfish_indices = []
+            # Convert UCI strings to indices, excluding the actual move
+            candidates = []
             for move_uci in stockfish_moves:
                 try:
                     idx = move_to_index(move_uci)
-                    stockfish_indices.append(idx)
+                    if idx != actual_move_idx:
+                        candidates.append(idx)
                 except Exception:
                     continue
 
-            # Filter out the actual move Jeb played
-            candidates = [m for m in stockfish_indices if m != actual_move_idx]
-
-            # If we have enough candidates from Stockfish, use them
-            if len(candidates) >= NUM_NEGATIVES:
+            # If we have at least one Stockfish candidate, use it
+            if candidates:
                 return candidates
 
-            # If not enough Stockfish moves, supplement with random legal moves
-            legal_moves = self._get_legal_moves(position_idx)
-            legal_filtered = [m for m in legal_moves if m != actual_move_idx and m not in candidates]
-            candidates.extend(legal_filtered)
-            return candidates
-
-        # Fallback: use random legal moves
+        # Fallback: use random legal moves (excluding actual move)
         legal_moves = self._get_legal_moves(position_idx)
         return [m for m in legal_moves if m != actual_move_idx]
 
@@ -224,14 +221,14 @@ class ChessPositionDataset(Dataset):
         return self._tensor_cache[position_idx]
 
     def __len__(self) -> int:
-        """Return total number of examples (1 positive + 4 negatives per position)."""
+        """Return total number of examples (1 positive + 1 negative per position)."""
         return len(self.positions) * (1 + NUM_NEGATIVES)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int, float]:
         """Get a single training example.
 
         Args:
-            idx: Index in range [0, len(positions) * 5)
+            idx: Index in range [0, len(positions) * 2)
 
         Returns:
             Tuple of (position_tensor, move_index, target) where:
@@ -239,7 +236,7 @@ class ChessPositionDataset(Dataset):
             - move_index: int in range [0, 4095]
             - target: float, 1.0 for positive (actual move), 0.0 for negative
         """
-        # Decode index: which position and which variant (0=positive, 1-4=negative)
+        # Decode index: which position and which variant (0=positive, 1=negative)
         position_idx = idx // (1 + NUM_NEGATIVES)
         variant = idx % (1 + NUM_NEGATIVES)
 

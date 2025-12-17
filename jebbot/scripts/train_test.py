@@ -95,18 +95,19 @@ def main():
     dataset = ChessPositionDataset(positions_file, cache_tensors=False)
     num_positions = dataset.get_num_positions()
     print(f"Original positions: {num_positions:,}")
-    print(f"With negatives (5x): {len(dataset):,}")
+    print(f"With 1:1 pos/neg (2x): {len(dataset):,}")
     print(f"Tensor caching: {'enabled' if dataset.cache_tensors else 'disabled (saves memory)'}")
 
-    # DEBUG: Check a few examples
+    # DEBUG: Check a few examples (show 3 positions, each with 1 pos + 1 neg)
     print("\n" + "=" * 60)
-    print("DEBUG: Sample examples from dataset")
+    print("DEBUG: Sample examples from dataset (1:1 pos/neg ratio)")
     print("=" * 60)
-    for i in range(10):
+    for i in range(6):
         pos, move_idx, target = dataset[i]
-        position_idx = i // 5
-        variant = i % 5
-        print(f"  idx={i} (pos={position_idx}, var={variant}) → target={target}, move_idx={move_idx}")
+        position_idx = i // 2
+        variant = i % 2
+        label = "positive" if variant == 0 else "negative"
+        print(f"  idx={i} (pos={position_idx}, {label}) → target={target}, move_idx={move_idx}")
 
     # Split dataset
     print("\nSplitting dataset (80% train, 10% val, 10% test)...")
