@@ -5,8 +5,9 @@ import threading
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-# Default server URL
-DEFAULT_URL = "http://localhost:8765/update"
+# Default server URLs
+DEFAULT_UPDATE_URL = "http://localhost:8765/update"
+DEFAULT_COMPLETE_URL = "http://localhost:8765/complete"
 
 
 def send_update(
@@ -18,7 +19,7 @@ def send_update(
     val_loss: float,
     val_accuracy: float,
     positions: list[dict],
-    url: str = DEFAULT_URL,
+    url: str = DEFAULT_UPDATE_URL,
     timeout: float = 0.5,
 ) -> None:
     """Send training update to visualization server (non-blocking).
@@ -76,6 +77,52 @@ def send_update(
     # Run in background thread to avoid blocking training
     thread = threading.Thread(target=_send, daemon=True)
     thread.start()
+
+
+def send_complete(
+    final_accuracy: float,
+    final_loss: float,
+    best_epoch: int,
+    total_time: float,
+    url: str = DEFAULT_COMPLETE_URL,
+    timeout: float = 1.0,
+) -> None:
+    """Send training completion notification to visualization server.
+
+    Args:
+        final_accuracy: Final test/validation accuracy (0.0 to 1.0)
+        final_loss: Final validation loss
+        best_epoch: Epoch number with best validation loss
+        total_time: Total training time in minutes
+        url: Server URL to POST to
+        timeout: Request timeout in seconds
+
+    Note:
+        This function blocks briefly to ensure the completion message is sent,
+        but will not raise errors if the server is not running.
+    """
+    try:
+        data = {
+            "final_accuracy": final_accuracy,
+            "final_loss": final_loss,
+            "best_epoch": best_epoch,
+            "total_time": total_time,
+        }
+        body = json.dumps(data).encode("utf-8")
+
+        req = Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urlopen(req, timeout=timeout)
+    except (URLError, TimeoutError, OSError):
+        # Silently fail - don't break training if visualization server is down
+        pass
+    except Exception:
+        # Catch any other unexpected errors silently
+        pass
 
 
 def is_server_running(url: str = "http://localhost:8765/status", timeout: float = 0.5) -> bool:

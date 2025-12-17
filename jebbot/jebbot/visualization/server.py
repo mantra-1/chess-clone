@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -17,6 +18,12 @@ _current_state = {
     "val_accuracy": 0.0,
     "positions": [],
     "timestamp": 0,
+    # Completion state
+    "complete": False,
+    "final_accuracy": 0.0,
+    "final_loss": 0.0,
+    "best_epoch": 0,
+    "total_time": 0.0,
 }
 
 
@@ -31,8 +38,6 @@ def update_state(
     positions: list[dict],
 ) -> None:
     """Update the global training state (thread-safe)."""
-    import time
-
     with _state_lock:
         _current_state["epoch"] = epoch
         _current_state["total_epochs"] = total_epochs
@@ -42,6 +47,22 @@ def update_state(
         _current_state["val_loss"] = val_loss
         _current_state["val_accuracy"] = val_accuracy
         _current_state["positions"] = positions
+        _current_state["timestamp"] = time.time()
+
+
+def mark_complete(
+    final_accuracy: float,
+    final_loss: float,
+    best_epoch: int,
+    total_time: float,
+) -> None:
+    """Mark training as complete with final metrics (thread-safe)."""
+    with _state_lock:
+        _current_state["complete"] = True
+        _current_state["final_accuracy"] = final_accuracy
+        _current_state["final_loss"] = final_loss
+        _current_state["best_epoch"] = best_epoch
+        _current_state["total_time"] = total_time
         _current_state["timestamp"] = time.time()
 
 
@@ -113,6 +134,24 @@ class VisualizationHandler(BaseHTTPRequestHandler):
                     val_loss=data.get("val_loss", 0.0),
                     val_accuracy=data.get("val_accuracy", 0.0),
                     positions=data.get("positions", []),
+                )
+                self._send_response(200, "application/json", b'{"status": "ok"}')
+            except Exception as e:
+                error = {"status": "error", "message": str(e)}
+                self._send_response(400, "application/json", json.dumps(error).encode())
+
+        elif self.path == "/complete":
+            # Receive training completion notification
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+
+            try:
+                data = json.loads(body.decode("utf-8"))
+                mark_complete(
+                    final_accuracy=data.get("final_accuracy", 0.0),
+                    final_loss=data.get("final_loss", 0.0),
+                    best_epoch=data.get("best_epoch", 0),
+                    total_time=data.get("total_time", 0.0),
                 )
                 self._send_response(200, "application/json", b'{"status": "ok"}')
             except Exception as e:

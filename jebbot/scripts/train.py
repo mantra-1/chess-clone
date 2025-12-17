@@ -459,6 +459,19 @@ def main():
     print(f"Test loss: {test_loss:.4f}")
     print(f"Test accuracy: {test_acc:.4f}")
 
+    # Send completion to visualization server
+    if args.visualize:
+        try:
+            from jebbot.visualization.client import send_complete
+            send_complete(
+                final_accuracy=test_acc,
+                final_loss=min(history["val_loss"]),
+                best_epoch=history["best_epoch"],
+                total_time=elapsed / 60,
+            )
+        except ImportError:
+            pass
+
 
 if __name__ == "__main__":
     main()

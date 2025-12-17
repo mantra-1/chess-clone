@@ -265,6 +265,98 @@
             padding: 40px;
             grid-column: span 3;
         }
+
+        /* Completion overlay styles */
+        .completion-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(232, 226, 217, 0.95);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            animation: fade-in 0.5s ease;
+        }
+
+        .completion-overlay.visible {
+            display: flex;
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .completion-card {
+            background: #f5f2ed;
+            border-radius: 16px;
+            padding: 40px 60px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            text-align: center;
+            border: 4px solid #5cb85c;
+            animation: pop-in 0.4s ease;
+        }
+
+        @keyframes pop-in {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .completion-checkmark {
+            font-size: 64px;
+            margin-bottom: 16px;
+            animation: bounce 0.6s ease;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .completion-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2a2520;
+            margin-bottom: 24px;
+        }
+
+        .completion-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px 32px;
+            margin-bottom: 24px;
+        }
+
+        .completion-stat {
+            text-align: center;
+        }
+
+        .completion-stat-label {
+            font-size: 12px;
+            color: #7a7570;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+
+        .completion-stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2a2520;
+        }
+
+        .completion-stat-value.highlight {
+            color: #5cb85c;
+        }
+
+        .completion-message {
+            font-size: 14px;
+            color: #5a5550;
+            margin-top: 16px;
+        }
     </style>
 </head>
 <body>
@@ -305,6 +397,33 @@
         <div class="legend-item">
             <div class="legend-box wrong"></div>
             <span>Wrong prediction</span>
+        </div>
+    </div>
+
+    <!-- Completion overlay -->
+    <div class="completion-overlay" id="completion-overlay">
+        <div class="completion-card">
+            <div class="completion-checkmark">&#10003;</div>
+            <div class="completion-title">Training Complete!</div>
+            <div class="completion-stats">
+                <div class="completion-stat">
+                    <div class="completion-stat-label">Final Accuracy</div>
+                    <div class="completion-stat-value highlight" id="final-accuracy">0.0%</div>
+                </div>
+                <div class="completion-stat">
+                    <div class="completion-stat-label">Final Loss</div>
+                    <div class="completion-stat-value" id="final-loss">0.0000</div>
+                </div>
+                <div class="completion-stat">
+                    <div class="completion-stat-label">Best Epoch</div>
+                    <div class="completion-stat-value" id="best-epoch">0/50</div>
+                </div>
+                <div class="completion-stat">
+                    <div class="completion-stat-label">Total Time</div>
+                    <div class="completion-stat-value" id="total-time">0 min</div>
+                </div>
+            </div>
+            <div class="completion-message">JebBot has learned your chess style!</div>
         </div>
     </div>
 
@@ -426,6 +545,7 @@
         // State
         let lastTimestamp = 0;
         let animating = false;
+        let trainingComplete = false;
 
         // Animate boards
         async function animateBoards(positions) {
@@ -466,6 +586,21 @@
             document.getElementById('progress').style.width = `${progress}%`;
         }
 
+        // Show completion overlay
+        function showCompletion(data) {
+            document.getElementById('final-accuracy').textContent = `${(data.final_accuracy * 100).toFixed(1)}%`;
+            document.getElementById('final-loss').textContent = data.final_loss.toFixed(4);
+            document.getElementById('best-epoch').textContent = `${data.best_epoch}/${data.total_epochs}`;
+            document.getElementById('total-time').textContent = `${data.total_time.toFixed(1)} min`;
+
+            // Set progress to 100%
+            document.getElementById('progress').style.width = '100%';
+
+            // Show overlay
+            document.getElementById('completion-overlay').classList.add('visible');
+            trainingComplete = true;
+        }
+
         // Poll for updates
         async function poll() {
             try {
@@ -474,8 +609,13 @@
 
                 updateStats(data);
 
-                // Check for new positions
-                if (data.timestamp > lastTimestamp && data.positions.length > 0) {
+                // Check for training completion
+                if (data.complete && !trainingComplete) {
+                    showCompletion(data);
+                }
+
+                // Check for new positions (only if not complete)
+                if (!trainingComplete && data.timestamp > lastTimestamp && data.positions.length > 0) {
                     lastTimestamp = data.timestamp;
                     animateBoards(data.positions);
                 }
