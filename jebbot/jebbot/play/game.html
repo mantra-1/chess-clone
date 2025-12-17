@@ -40,61 +40,26 @@
             font-size: 14px;
         }
 
-        /* Mode selector */
-        .mode-selector {
+        /* Opponent selector */
+        .opponent-selector {
             display: flex;
             justify-content: center;
-            gap: 8px;
+            align-items: center;
+            gap: 12px;
             margin-bottom: 16px;
+            font-size: 14px;
+            color: #5a5550;
         }
 
-        .mode-btn {
-            padding: 10px 20px;
+        .opponent-selector select {
+            padding: 8px 14px;
             border: 2px solid #c9bfb0;
             border-radius: 6px;
             background: #f5f2ed;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            color: #5a5550;
-            transition: all 0.2s ease;
-        }
-
-        .mode-btn:hover {
-            background: #ebe6de;
-        }
-
-        .mode-btn.active {
-            background: #5cb85c;
-            border-color: #5cb85c;
-            color: white;
-        }
-
-        /* Side selector */
-        .side-selector {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 16px;
-            font-size: 13px;
-            color: #5a5550;
-        }
-
-        .side-toggle {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .side-toggle select {
-            padding: 6px 12px;
-            border: 2px solid #c9bfb0;
-            border-radius: 4px;
-            background: #f5f2ed;
-            font-size: 13px;
+            font-size: 14px;
             color: #2a2520;
             cursor: pointer;
+            font-weight: 500;
         }
 
         .vs-label {
@@ -155,15 +120,28 @@
             transition: background 0.2s ease;
         }
 
-        .control-btn:hover {
+        .control-btn:hover:not(:disabled) {
             background: #2a2520;
         }
 
-        .control-btn.playing {
+        .control-btn:disabled {
+            background: #a0a0a0;
+            cursor: not-allowed;
+        }
+
+        .control-btn.primary {
+            background: #5cb85c;
+        }
+
+        .control-btn.primary:hover:not(:disabled) {
+            background: #4a9a4a;
+        }
+
+        .control-btn.pause {
             background: #d9534f;
         }
 
-        .control-btn.playing:hover {
+        .control-btn.pause:hover {
             background: #c9302c;
         }
 
@@ -289,10 +267,6 @@
             padding: 40px 0;
         }
 
-        .terminal-stockfish {
-            color: #60a5fa;
-        }
-
         .terminal-book {
             color: #fbbf24;
         }
@@ -305,18 +279,11 @@
             <p>A neural network that plays chess like Jeb</p>
         </div>
 
-        <div class="mode-selector">
-            <button class="mode-btn active" data-mode="play">Play vs JebBot</button>
-            <button class="mode-btn" data-mode="watch">JebBot vs Stockfish</button>
-        </div>
-
-        <div class="side-selector" id="side-selector">
-            <div class="side-toggle">
-                <select id="player-side">
-                    <option value="player">Player</option>
-                    <option value="stockfish">Stockfish</option>
-                </select>
-            </div>
+        <div class="opponent-selector">
+            <select id="opponent">
+                <option value="player">Player</option>
+                <option value="stockfish">Stockfish</option>
+            </select>
             <span class="vs-label">vs</span>
             <span class="jebbot-label">JebBot</span>
         </div>
@@ -324,8 +291,9 @@
         <div class="board-section">
             <div id="board"></div>
             <div class="controls">
+                <button class="control-btn" id="flip-board">Flip Board</button>
+                <button class="control-btn primary" id="start-btn">Start Game</button>
                 <button class="control-btn" id="new-game">New Game</button>
-                <button class="control-btn" id="start-pause" style="display: none;">Start</button>
             </div>
             <div class="status" id="status"></div>
         </div>
@@ -342,9 +310,10 @@
         // Game state
         let board = null;
         let game = new Chess();
-        let gameMode = 'play';  // 'play' or 'watch'
-        let playerSide = 'player';  // 'player' or 'stockfish'
-        let isPlaying = false;  // For watch mode auto-play
+        let opponent = 'player';  // 'player' or 'stockfish'
+        let boardFlipped = false; // false = white on bottom, true = black on bottom
+        let gameStarted = false;
+        let isPlaying = false;    // For auto-play (stockfish mode)
         let autoPlayTimeout = null;
         let isThinking = false;
 
@@ -353,6 +322,7 @@
             const config = {
                 draggable: true,
                 position: 'start',
+                orientation: 'white',
                 pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
                 onDragStart: onDragStart,
                 onDrop: onDrop,
@@ -361,10 +331,14 @@
             board = Chessboard('board', config);
         }
 
+        // Get the color the human/stockfish plays (bottom of board)
+        function getPlayerColor() {
+            return boardFlipped ? 'b' : 'w';
+        }
+
         // Get move history as UCI strings
         function getMoveHistory() {
             const history = [];
-            const tempGame = new Chess();
             const moves = game.history({ verbose: true });
             for (const move of moves) {
                 history.push(move.from + move.to + (move.promotion || ''));
@@ -374,25 +348,29 @@
 
         // Check if it's the human player's turn
         function isPlayerTurn() {
-            if (gameMode !== 'play') return false;
-            if (playerSide !== 'player') return false;
-            // Player always plays white (bottom of board), JebBot plays black
-            return game.turn() === 'w';
+            if (opponent !== 'player') return false;
+            return game.turn() === getPlayerColor();
         }
 
         // Drag start handler
         function onDragStart(source, piece, position, orientation) {
             if (game.game_over()) return false;
+            if (opponent !== 'player') return false;
+            if (!gameStarted && getPlayerColor() === 'b') return false; // Must click Start if playing black
 
-            if (gameMode === 'play' && playerSide === 'player') {
-                if (!isPlayerTurn()) return false;
-                if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
-                    (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
-                    return false;
-                }
-                return true;
+            if (!isPlayerTurn()) return false;
+
+            // Can only move own pieces
+            const pieceColor = piece.charAt(0);
+            if (pieceColor !== game.turn()) return false;
+
+            // Mark game as started on first move attempt
+            if (!gameStarted) {
+                gameStarted = true;
+                updateFlipButton();
             }
-            return false;
+
+            return true;
         }
 
         // Drop handler
@@ -422,7 +400,7 @@
         // Update game status
         function updateStatus() {
             let status = '';
-            const turn = game.turn() === 'w' ? 'White' : 'Black';
+            const statusEl = document.getElementById('status');
 
             if (game.game_over()) {
                 if (game.in_checkmate()) {
@@ -433,25 +411,24 @@
                 } else {
                     status = 'Game over!';
                 }
-                document.getElementById('status').className = 'status game-over';
+                statusEl.className = 'status game-over';
                 stopAutoPlay();
-            } else {
-                if (gameMode === 'play') {
-                    if (isPlayerTurn()) {
-                        status = 'Your turn';
-                        document.getElementById('status').className = 'status turn-player';
-                    } else {
-                        status = 'JebBot is thinking...';
-                        document.getElementById('status').className = 'status';
-                    }
+            } else if (opponent === 'player') {
+                if (isPlayerTurn()) {
+                    status = 'Your turn';
+                    statusEl.className = 'status turn-player';
                 } else {
-                    const player = game.turn() === 'w' ? 'JebBot' : 'Stockfish';
-                    status = `${player}'s turn`;
-                    document.getElementById('status').className = 'status';
+                    status = 'JebBot is thinking...';
+                    statusEl.className = 'status';
                 }
+            } else {
+                // Stockfish vs JebBot
+                const player = game.turn() === getPlayerColor() ? 'Stockfish' : 'JebBot';
+                status = `${player}'s turn`;
+                statusEl.className = 'status';
             }
 
-            document.getElementById('status').textContent = status;
+            statusEl.textContent = status;
         }
 
         // Make JebBot move
@@ -459,7 +436,7 @@
             if (game.game_over() || isThinking) return;
 
             isThinking = true;
-            showThinking('JebBot');
+            showThinking();
 
             try {
                 const response = await fetch('/jebbot_move', {
@@ -474,7 +451,7 @@
                     showCandidates(data.candidates, data.selected_move, data.selection_reason);
                     highlightCandidates(data.candidates, data.selected_move);
 
-                    const move = game.move({
+                    game.move({
                         from: data.selected_move.substring(0, 2),
                         to: data.selected_move.substring(2, 4),
                         promotion: data.selected_move.length > 4 ? data.selected_move[4] : 'q'
@@ -483,9 +460,9 @@
                     board.position(game.fen());
                     updateStatus();
 
-                    // Continue auto-play in watch mode
-                    if (gameMode === 'watch' && isPlaying && !game.game_over()) {
-                        autoPlayTimeout = setTimeout(makeStockfishMove, 2000);
+                    // Continue auto-play in stockfish mode
+                    if (opponent === 'stockfish' && isPlaying && !game.game_over()) {
+                        autoPlayTimeout = setTimeout(makeStockfishMove, 1000);
                     }
                 }
             } catch (error) {
@@ -500,7 +477,6 @@
             if (game.game_over() || isThinking) return;
 
             isThinking = true;
-            showThinking('Stockfish');
 
             try {
                 const response = await fetch('/stockfish_move', {
@@ -513,20 +489,19 @@
 
                 if (data.move) {
                     clearHighlights();
-                    showStockfishMove(data.move);
 
-                    const move = game.move({
+                    game.move({
                         from: data.move.substring(0, 2),
                         to: data.move.substring(2, 4),
-                        promotion: data.move.length > 4 ? data.move[4] : 'q'
+                        promotion: data.move.length > 4 ? data.move[4] : undefined
                     });
 
                     board.position(game.fen());
                     updateStatus();
 
-                    // Continue auto-play in watch mode
-                    if (gameMode === 'watch' && isPlaying && !game.game_over()) {
-                        autoPlayTimeout = setTimeout(makeJebBotMove, 2000);
+                    // Continue auto-play
+                    if (opponent === 'stockfish' && isPlaying && !game.game_over()) {
+                        autoPlayTimeout = setTimeout(makeJebBotMove, 1000);
                     }
                 }
             } catch (error) {
@@ -544,11 +519,10 @@
         }
 
         // Show thinking state in terminal
-        function showThinking(player) {
+        function showThinking() {
             const terminal = document.getElementById('terminal');
-            const cls = player === 'Stockfish' ? 'terminal-stockfish' : '';
             terminal.innerHTML = `
-                <div class="terminal-line terminal-thinking ${cls}">&gt; ${player} analyzing position</div>
+                <div class="terminal-line terminal-thinking">&gt; JebBot analyzing position</div>
             `;
         }
 
@@ -621,38 +595,6 @@
             terminal.innerHTML = html;
         }
 
-        // Show Stockfish move in terminal
-        function showStockfishMove(move) {
-            const tempGame = new Chess(game.fen());
-            let algebraic = move;
-            try {
-                const moveObj = tempGame.move({
-                    from: move.substring(0, 2),
-                    to: move.substring(2, 4),
-                    promotion: move.length > 4 ? move[4] : undefined
-                });
-                if (moveObj) algebraic = moveObj.san;
-            } catch (e) {}
-
-            const terminal = document.getElementById('terminal');
-            terminal.innerHTML = `
-                <div class="terminal-line"><span class="terminal-prompt">&gt;</span> <span class="terminal-stockfish">Stockfish analyzing position...</span></div>
-                <div class="terminal-header">
-                    <span>Best Move:</span>
-                    <span>ELO 1500</span>
-                </div>
-                <div class="terminal-candidates">
-                    <div class="candidate-row selected">
-                        <span class="candidate-num">1.</span>
-                        <span class="candidate-move terminal-stockfish">${algebraic}</span>
-                        <span class="candidate-bar">${buildBar(1.0)}</span>
-                        <span class="candidate-score">-</span>
-                    </div>
-                </div>
-                <div class="terminal-action"><span class="terminal-prompt">&gt;</span> <span class="terminal-stockfish">Playing ${algebraic}</span></div>
-            `;
-        }
-
         // Highlight candidate squares on board
         function highlightCandidates(candidates, selectedMove) {
             clearHighlights();
@@ -677,49 +619,139 @@
             });
         }
 
-        // Start auto-play for watch mode
-        function startAutoPlay() {
+        // Start game / auto-play
+        function startGame() {
             if (game.game_over()) return;
 
-            isPlaying = true;
-            updateStartPauseButton();
+            gameStarted = true;
+            updateFlipButton();
 
-            // JebBot plays white, start with JebBot
-            if (game.turn() === 'w') {
-                makeJebBotMove();
+            if (opponent === 'stockfish') {
+                // Auto-play mode
+                isPlaying = true;
+                updateStartButton();
+
+                // Determine who moves first based on board orientation
+                // JebBot is always on top, so if board not flipped, JebBot plays black
+                // Stockfish (on bottom) plays white if board not flipped
+                if (getPlayerColor() === 'w') {
+                    // Stockfish plays white, moves first
+                    makeStockfishMove();
+                } else {
+                    // JebBot plays white, moves first
+                    makeJebBotMove();
+                }
             } else {
-                makeStockfishMove();
+                // Player mode - JebBot needs to move first if player is black
+                if (getPlayerColor() === 'b') {
+                    makeJebBotMove();
+                }
+                updateStartButton();
             }
         }
 
-        // Stop auto-play
+        // Pause auto-play
+        function pauseGame() {
+            isPlaying = false;
+            if (autoPlayTimeout) {
+                clearTimeout(autoPlayTimeout);
+                autoPlayTimeout = null;
+            }
+            updateStartButton();
+        }
+
+        // Resume auto-play
+        function resumeGame() {
+            if (game.game_over()) return;
+
+            isPlaying = true;
+            updateStartButton();
+
+            // Continue with whoever's turn it is
+            if (game.turn() === getPlayerColor()) {
+                makeStockfishMove();
+            } else {
+                makeJebBotMove();
+            }
+        }
+
+        // Stop auto-play completely
         function stopAutoPlay() {
             isPlaying = false;
             if (autoPlayTimeout) {
                 clearTimeout(autoPlayTimeout);
                 autoPlayTimeout = null;
             }
-            updateStartPauseButton();
+            updateStartButton();
         }
 
-        // Toggle auto-play
-        function toggleAutoPlay() {
-            if (isPlaying) {
-                stopAutoPlay();
-            } else {
-                startAutoPlay();
+        // Handle start/pause/resume button click
+        function handleStartButton() {
+            if (!gameStarted) {
+                startGame();
+            } else if (opponent === 'stockfish') {
+                if (isPlaying) {
+                    pauseGame();
+                } else {
+                    resumeGame();
+                }
             }
         }
 
-        // Update start/pause button
-        function updateStartPauseButton() {
-            const btn = document.getElementById('start-pause');
-            if (isPlaying) {
-                btn.textContent = 'Pause';
-                btn.classList.add('playing');
+        // Update start button state
+        function updateStartButton() {
+            const btn = document.getElementById('start-btn');
+
+            if (!gameStarted) {
+                btn.textContent = 'Start Game';
+                btn.className = 'control-btn primary';
+                btn.style.display = 'inline-block';
+            } else if (opponent === 'stockfish') {
+                if (isPlaying) {
+                    btn.textContent = 'Pause';
+                    btn.className = 'control-btn pause';
+                    btn.style.display = 'inline-block';
+                } else if (!game.game_over()) {
+                    btn.textContent = 'Resume';
+                    btn.className = 'control-btn primary';
+                    btn.style.display = 'inline-block';
+                } else {
+                    btn.style.display = 'none';
+                }
             } else {
-                btn.textContent = 'Start';
-                btn.classList.remove('playing');
+                // Player mode after game started - hide button
+                btn.style.display = 'none';
+            }
+        }
+
+        // Update flip button state
+        function updateFlipButton() {
+            const btn = document.getElementById('flip-board');
+            btn.disabled = gameStarted;
+        }
+
+        // Flip board
+        function flipBoard() {
+            if (gameStarted) return;
+
+            boardFlipped = !boardFlipped;
+            board.orientation(boardFlipped ? 'black' : 'white');
+            updateTerminalMessage();
+        }
+
+        // Update terminal message based on current state
+        function updateTerminalMessage() {
+            const terminal = document.getElementById('terminal');
+            const playerColor = getPlayerColor() === 'w' ? 'White' : 'Black';
+
+            if (opponent === 'player') {
+                if (getPlayerColor() === 'w') {
+                    terminal.innerHTML = '<div class="terminal-waiting">Make your move to start the game</div>';
+                } else {
+                    terminal.innerHTML = '<div class="terminal-waiting">Click "Start Game" for JebBot to move first</div>';
+                }
+            } else {
+                terminal.innerHTML = '<div class="terminal-waiting">Stockfish vs JebBot - Click "Start Game"</div>';
             }
         }
 
@@ -727,61 +759,19 @@
         function newGame() {
             stopAutoPlay();
             game = new Chess();
-            board.start();
+            gameStarted = false;
+            board.position('start');
+            board.orientation(boardFlipped ? 'black' : 'white');
             clearHighlights();
-
-            const terminal = document.getElementById('terminal');
-            if (gameMode === 'play') {
-                if (playerSide === 'player') {
-                    terminal.innerHTML = '<div class="terminal-waiting">Your move! JebBot is waiting...</div>';
-                } else {
-                    terminal.innerHTML = '<div class="terminal-waiting">Stockfish vs JebBot - Click Start</div>';
-                }
-            } else {
-                terminal.innerHTML = '<div class="terminal-waiting">JebBot vs Stockfish - Click Start</div>';
-            }
-
+            updateFlipButton();
+            updateStartButton();
+            updateTerminalMessage();
             updateStatus();
-
-            // In play mode with Stockfish playing white, start immediately
-            if (gameMode === 'play' && playerSide === 'stockfish') {
-                setTimeout(() => {
-                    isPlaying = true;
-                    updateStartPauseButton();
-                    makeStockfishMove();
-                }, 500);
-            }
         }
 
-        // Mode change
-        function setMode(mode) {
-            stopAutoPlay();
-            gameMode = mode;
-
-            // Update UI
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.mode === mode);
-            });
-
-            // Show/hide side selector and start/pause button
-            if (mode === 'play') {
-                document.getElementById('side-selector').style.display = 'flex';
-                document.getElementById('start-pause').style.display = playerSide === 'stockfish' ? 'inline-block' : 'none';
-            } else {
-                document.getElementById('side-selector').style.display = 'none';
-                document.getElementById('start-pause').style.display = 'inline-block';
-            }
-
-            newGame();
-        }
-
-        // Player side change
-        function setPlayerSide(side) {
-            playerSide = side;
-
-            // Show start/pause button if Stockfish is playing
-            document.getElementById('start-pause').style.display = side === 'stockfish' ? 'inline-block' : 'none';
-
+        // Opponent change
+        function setOpponent(value) {
+            opponent = value;
             newGame();
         }
 
@@ -789,19 +779,16 @@
         document.addEventListener('DOMContentLoaded', () => {
             initBoard();
             updateStatus();
-
-            // Mode buttons
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.addEventListener('click', () => setMode(btn.dataset.mode));
-            });
+            updateTerminalMessage();
 
             // Control buttons
+            document.getElementById('flip-board').addEventListener('click', flipBoard);
+            document.getElementById('start-btn').addEventListener('click', handleStartButton);
             document.getElementById('new-game').addEventListener('click', newGame);
-            document.getElementById('start-pause').addEventListener('click', toggleAutoPlay);
 
-            // Player side selector
-            document.getElementById('player-side').addEventListener('change', (e) => {
-                setPlayerSide(e.target.value);
+            // Opponent selector
+            document.getElementById('opponent').addEventListener('change', (e) => {
+                setOpponent(e.target.value);
             });
         });
     </script>
