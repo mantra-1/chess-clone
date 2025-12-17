@@ -10,6 +10,7 @@ from stockfish import Stockfish
 
 from jebbot.data.encode import fen_to_tensor, move_to_index
 from jebbot.model.style_selector import StyleSelector
+from jebbot.play.openings import get_book_move
 
 # Common Stockfish paths to try
 STOCKFISH_PATHS = [
@@ -175,25 +176,46 @@ class JebBotEngine:
 
         return scores
 
-    def select_move(self, fen: str, n_candidates: int = 5) -> dict:
+    def select_move(
+        self, fen: str, move_history: Optional[list[str]] = None, n_candidates: int = 5
+    ) -> dict:
         """Select a move balancing Stockfish quality with Jeb's style.
 
         Selection logic:
+        0. Check opening book first
         1. Find first Stockfish move with >50% Jeb score ("safe pick")
         2. If another move has Jeb score 15%+ higher, play that instead
         3. If no move is >50% Jeb, fall back to highest Jeb score
 
         Args:
             fen: FEN string of current position
+            move_history: List of UCI moves played so far (for opening book)
             n_candidates: Number of Stockfish candidates to consider
 
         Returns:
             Dict with:
                 - selected_move: UCI string of chosen move
                 - candidates: List of {move, score, algebraic} dicts
-                - selection_reason: "safe_pick", "strong_jeb_preference", or "fallback"
+                - selection_reason: "opening_book", "safe_pick", "strong_jeb_preference", or "fallback"
         """
         board = chess.Board(fen)
+
+        # Check opening book first
+        if move_history is not None:
+            book_move = get_book_move(fen, move_history)
+            if book_move:
+                # Get algebraic notation for the book move
+                try:
+                    move = chess.Move.from_uci(book_move)
+                    algebraic = board.san(move)
+                except (ValueError, chess.InvalidMoveError):
+                    algebraic = book_move
+
+                return {
+                    "selected_move": book_move,
+                    "candidates": [{"move": book_move, "score": 1.0, "algebraic": algebraic}],
+                    "selection_reason": "opening_book",
+                }
 
         # Get candidate moves from Stockfish (ranked by quality)
         candidates = self.get_candidates(fen, n_candidates)

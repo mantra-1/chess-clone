@@ -292,6 +292,10 @@
         .terminal-stockfish {
             color: #60a5fa;
         }
+
+        .terminal-book {
+            color: #fbbf24;
+        }
     </style>
 </head>
 <body>
@@ -355,6 +359,17 @@
                 onSnapEnd: onSnapEnd,
             };
             board = Chessboard('board', config);
+        }
+
+        // Get move history as UCI strings
+        function getMoveHistory() {
+            const history = [];
+            const tempGame = new Chess();
+            const moves = game.history({ verbose: true });
+            for (const move of moves) {
+                history.push(move.from + move.to + (move.promotion || ''));
+            }
+            return history;
         }
 
         // Check if it's the human player's turn
@@ -450,13 +465,13 @@
                 const response = await fetch('/jebbot_move', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fen: game.fen() })
+                    body: JSON.stringify({ fen: game.fen(), move_history: getMoveHistory() })
                 });
 
                 const data = await response.json();
 
                 if (data.selected_move) {
-                    showCandidates(data.candidates, data.selected_move);
+                    showCandidates(data.candidates, data.selected_move, data.selection_reason);
                     highlightCandidates(data.candidates, data.selected_move);
 
                     const move = game.move({
@@ -538,8 +553,39 @@
         }
 
         // Show candidates in terminal
-        function showCandidates(candidates, selectedMove) {
+        function showCandidates(candidates, selectedMove, selectionReason) {
             const terminal = document.getElementById('terminal');
+
+            // Find selected move's algebraic notation
+            const selected = candidates.find(c => c.move === selectedMove);
+            const selectedAlgebraic = selected ? selected.algebraic : selectedMove;
+
+            // Handle opening book move specially
+            if (selectionReason === 'opening_book') {
+                terminal.innerHTML = `
+                    <div class="terminal-line"><span class="terminal-prompt">&gt;</span> <span class="terminal-book">Opening book</span></div>
+                    <div class="terminal-candidates">
+                        <div class="candidate-row selected">
+                            <span class="candidate-num">1.</span>
+                            <span class="candidate-move terminal-book">${selectedAlgebraic}</span>
+                            <span class="candidate-bar">${buildBar(1.0)}</span>
+                            <span class="candidate-score terminal-book">BOOK</span>
+                        </div>
+                    </div>
+                    <div class="terminal-action"><span class="terminal-prompt">&gt;</span> <span class="terminal-book">Playing ${selectedAlgebraic}</span></div>
+                `;
+                return;
+            }
+
+            // Normal candidate display
+            let reasonText = '';
+            if (selectionReason === 'safe_pick') {
+                reasonText = ' (safe pick)';
+            } else if (selectionReason === 'strong_jeb_preference') {
+                reasonText = ' (strong Jeb preference)';
+            } else if (selectionReason === 'fallback') {
+                reasonText = ' (fallback)';
+            }
 
             let html = `
                 <div class="terminal-line"><span class="terminal-prompt">&gt;</span> JebBot analyzing position...</div>
@@ -567,13 +613,9 @@
                 `;
             });
 
-            // Find selected move's algebraic notation
-            const selected = candidates.find(c => c.move === selectedMove);
-            const selectedAlgebraic = selected ? selected.algebraic : selectedMove;
-
             html += `
                 </div>
-                <div class="terminal-action"><span class="terminal-prompt">&gt;</span> Playing ${selectedAlgebraic}</div>
+                <div class="terminal-action"><span class="terminal-prompt">&gt;</span> Playing ${selectedAlgebraic}${reasonText}</div>
             `;
 
             terminal.innerHTML = html;

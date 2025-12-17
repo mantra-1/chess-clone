@@ -44,17 +44,18 @@ def index():
 def jebbot_move():
     """Get JebBot's move for a position.
 
-    Request JSON: {"fen": "..."}
-    Response JSON: {"selected_move": "e2e4", "candidates": [...]}
+    Request JSON: {"fen": "...", "move_history": ["e2e4", "e7e5", ...]}
+    Response JSON: {"selected_move": "e2e4", "candidates": [...], "selection_reason": "..."}
     """
     data = request.get_json()
     fen = data.get("fen")
+    move_history = data.get("move_history", [])
 
     if not fen:
         return jsonify({"error": "Missing FEN"}), 400
 
     try:
-        result = engine.select_move(fen)
+        result = engine.select_move(fen, move_history)
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
