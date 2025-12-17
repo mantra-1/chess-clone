@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JebBot Interesting Examples</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #e8e2d9;
+            min-height: 100vh;
+            padding: 16px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #2a2520;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #5a5550;
+            font-size: 14px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab .count {
+            background: rgba(255,255,255,0.3);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+
+        /* Tab themes */
+        .tab.green {
+            background: #d4edda;
+            color: #155724;
+        }
+        .tab.green.active {
+            background: #5cb85c;
+            color: white;
+        }
+
+        .tab.orange {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .tab.orange.active {
+            background: #f0ad4e;
+            color: white;
+        }
+
+        .tab.red {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .tab.red.active {
+            background: #d9534f;
+            color: white;
+        }
+
+        .tab.blue {
+            background: #cce5ff;
+            color: #004085;
+        }
+        .tab.blue.active {
+            background: #5bc0de;
+            color: white;
+        }
+
+        /* Examples container */
+        .examples-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #f5f2ed;
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 400px;
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+
+        .examples-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 12px;
+        }
+
+        .example-card {
+            background: white;
+            border-radius: 6px;
+            padding: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* Theme borders for cards */
+        .examples-container.green .example-card {
+            border-left: 4px solid #5cb85c;
+        }
+        .examples-container.orange .example-card {
+            border-left: 4px solid #f0ad4e;
+        }
+        .examples-container.red .example-card {
+            border-left: 4px solid #d9534f;
+        }
+        .examples-container.blue .example-card {
+            border-left: 4px solid #5bc0de;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 26px);
+            grid-template-rows: repeat(8, 26px);
+            border: 1px solid #b5aea5;
+            margin: 0 auto;
+        }
+
+        .square {
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            line-height: 1;
+        }
+
+        .square.light {
+            background: #ebe6de;
+        }
+
+        .square.dark {
+            background: #c9bfb0;
+        }
+
+        .square.highlight-from {
+            background: #a8d8ea !important;
+        }
+
+        .square.highlight-to {
+            background: #8cc9a3 !important;
+        }
+
+        .piece {
+            user-select: none;
+        }
+
+        .piece.white {
+            color: #f5f2ed;
+            text-shadow: 0 0 2px #2a2520, 0 0 2px #2a2520;
+        }
+
+        .piece.black {
+            color: #2a2520;
+        }
+
+        .example-info {
+            margin-top: 8px;
+            text-align: center;
+        }
+
+        .move-uci {
+            font-family: monospace;
+            font-size: 14px;
+            font-weight: 600;
+            color: #2a2520;
+        }
+
+        .confidence-display {
+            margin-top: 4px;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .examples-container.green .confidence-display {
+            color: #5cb85c;
+        }
+        .examples-container.orange .confidence-display {
+            color: #f0ad4e;
+        }
+        .examples-container.red .confidence-display {
+            color: #d9534f;
+        }
+        .examples-container.blue .confidence-display {
+            color: #5bc0de;
+        }
+
+        .meta-info {
+            margin-top: 4px;
+            font-size: 11px;
+            color: #7a7570;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #7a7570;
+            padding: 60px 20px;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 8px;
+            color: #5a5550;
+        }
+
+        /* Loading state */
+        .loading {
+            text-align: center;
+            color: #7a7570;
+            padding: 60px 20px;
+        }
+
+        /* Summary stats */
+        .summary {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #5a5550;
+        }
+
+        .summary-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .summary-value {
+            font-weight: 600;
+            color: #2a2520;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>JebBot Interesting Examples</h1>
+        <p>Browse examples from training that reveal how the model learned</p>
+    </div>
+
+    <div class="summary" id="summary">
+        <div class="summary-item">
+            <span>Total examples:</span>
+            <span class="summary-value" id="total-count">0</span>
+        </div>
+    </div>
+
+    <div class="tabs" id="tabs">
+        <button class="tab green active" data-category="high_confidence_correct" data-theme="green">
+            This is SO Jeb
+            <span class="count" id="count-high_confidence_correct">0</span>
+        </button>
+        <button class="tab orange" data-category="high_confidence_wrong" data-theme="orange">
+            Fooled the Model
+            <span class="count" id="count-high_confidence_wrong">0</span>
+        </button>
+        <button class="tab red" data-category="missed_jeb_move" data-theme="red">
+            Missed Jeb Move
+            <span class="count" id="count-missed_jeb_move">0</span>
+        </button>
+        <button class="tab blue" data-category="confident_not_jeb" data-theme="blue">
+            Correctly Rejected
+            <span class="count" id="count-confident_not_jeb">0</span>
+        </button>
+    </div>
+
+    <div class="examples-container green" id="examples-container">
+        <div class="loading">Loading examples...</div>
+    </div>
+
+    <script>
+        // Chess piece unicode characters
+        const PIECES = {
+            'K': '\u2654', 'Q': '\u2655', 'R': '\u2656', 'B': '\u2657', 'N': '\u2658', 'P': '\u2659',
+            'k': '\u265A', 'q': '\u265B', 'r': '\u265C', 'b': '\u265D', 'n': '\u265E', 'p': '\u265F'
+        };
+
+        let data = null;
+        let currentCategory = 'high_confidence_correct';
+
+        // Parse FEN to board array
+        function parseFEN(fen) {
+            const board = [];
+            const rows = fen.split(' ')[0].split('/');
+            for (const row of rows) {
+                const boardRow = [];
+                for (const char of row) {
+                    if (char >= '1' && char <= '8') {
+                        for (let i = 0; i < parseInt(char); i++) {
+                            boardRow.push(null);
+                        }
+                    } else {
+                        boardRow.push(char);
+                    }
+                }
+                board.push(boardRow);
+            }
+            return board;
+        }
+
+        // Parse UCI move to squares
+        function parseMove(uci) {
+            if (!uci || uci.length < 4) return null;
+            const files = 'abcdefgh';
+            const fromFile = files.indexOf(uci[0]);
+            const fromRank = parseInt(uci[1]) - 1;
+            const toFile = files.indexOf(uci[2]);
+            const toRank = parseInt(uci[3]) - 1;
+            return {
+                from: { row: 7 - fromRank, col: fromFile },
+                to: { row: 7 - toRank, col: toFile }
+            };
+        }
+
+        // Create board HTML with highlighted move
+        function createBoardHTML(fen, move) {
+            const board = parseFEN(fen);
+            const parsed = parseMove(move);
+
+            let html = '<div class="board">';
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const isLight = (row + col) % 2 === 0;
+                    let squareClass = `square ${isLight ? 'light' : 'dark'}`;
+
+                    // Highlight move squares
+                    if (parsed) {
+                        if (parsed.from.row === row && parsed.from.col === col) {
+                            squareClass += ' highlight-from';
+                        }
+                        if (parsed.to.row === row && parsed.to.col === col) {
+                            squareClass += ' highlight-to';
+                        }
+                    }
+
+                    const piece = board[row][col];
+                    let pieceHTML = '';
+                    if (piece) {
+                        const isWhite = piece === piece.toUpperCase();
+                        pieceHTML = `<span class="piece ${isWhite ? 'white' : 'black'}">${PIECES[piece]}</span>`;
+                    }
+
+                    html += `<div class="${squareClass}">${pieceHTML}</div>`;
+                }
+            }
+            html += '</div>';
+            return html;
+        }
+
+        // Create example card
+        function createExampleCard(example) {
+            const confidence = (example.confidence * 100).toFixed(1);
+            return `
+                <div class="example-card">
+                    ${createBoardHTML(example.fen, example.move)}
+                    <div class="example-info">
+                        <div class="move-uci">${example.move}</div>
+                        <div class="confidence-display">${confidence}%</div>
+                        <div class="meta-info">Epoch ${example.epoch}, Batch ${example.batch}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render examples for category
+        function renderCategory(category) {
+            const container = document.getElementById('examples-container');
+            const examples = data[category] || [];
+
+            // Update theme
+            container.className = 'examples-container ' + document.querySelector(`[data-category="${category}"]`).dataset.theme;
+
+            if (examples.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No examples in this category</h3>
+                        <p>The model didn't produce any examples matching this criteria during training.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="examples-grid">
+                    ${examples.map(createExampleCard).join('')}
+                </div>
+            `;
+        }
+
+        // Update tab active state
+        function setActiveTab(category) {
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.category === category);
+            });
+            currentCategory = category;
+            renderCategory(category);
+        }
+
+        // Update counts
+        function updateCounts() {
+            if (!data) return;
+
+            const categories = ['high_confidence_correct', 'high_confidence_wrong', 'missed_jeb_move', 'confident_not_jeb'];
+            let total = 0;
+
+            categories.forEach(cat => {
+                const count = (data[cat] || []).length;
+                document.getElementById(`count-${cat}`).textContent = count;
+                total += count;
+            });
+
+            document.getElementById('total-count').textContent = total;
+        }
+
+        // Load data
+        async function loadData() {
+            try {
+                const response = await fetch('/data');
+                data = await response.json();
+                updateCounts();
+                renderCategory(currentCategory);
+            } catch (e) {
+                document.getElementById('examples-container').innerHTML = `
+                    <div class="empty-state">
+                        <h3>Could not load data</h3>
+                        <p>Make sure interesting_examples.json exists in data/models/</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Tab click handlers
+        document.getElementById('tabs').addEventListener('click', (e) => {
+            const tab = e.target.closest('.tab');
+            if (tab) {
+                setActiveTab(tab.dataset.category);
+            }
+        });
+
+        // Load on start
+        loadData();
+    </script>
+</body>
+</html>
