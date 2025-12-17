@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Play JebBot</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #e8e2d9;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            color: #2a2520;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #5a5550;
+            font-size: 14px;
+        }
+
+        /* Mode selector */
+        .mode-selector {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .mode-btn {
+            padding: 10px 20px;
+            border: 2px solid #c9bfb0;
+            border-radius: 6px;
+            background: #f5f2ed;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: #5a5550;
+            transition: all 0.2s ease;
+        }
+
+        .mode-btn:hover {
+            background: #ebe6de;
+        }
+
+        .mode-btn.active {
+            background: #5cb85c;
+            border-color: #5cb85c;
+            color: white;
+        }
+
+        /* Game area */
+        .game-area {
+            display: flex;
+            gap: 24px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .board-section {
+            flex-shrink: 0;
+        }
+
+        #board {
+            width: 400px;
+        }
+
+        /* Custom board colors */
+        .board-b72b1 .white-1e1d7 {
+            background-color: #ebe6de !important;
+        }
+
+        .board-b72b1 .black-3c85d {
+            background-color: #c9bfb0 !important;
+        }
+
+        /* Highlight squares */
+        .highlight-candidate {
+            box-shadow: inset 0 0 0 4px rgba(92, 184, 92, 0.5) !important;
+        }
+
+        .highlight-selected {
+            background-color: #8cc9a3 !important;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .control-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            background: #5a5550;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s ease;
+        }
+
+        .control-btn:hover {
+            background: #2a2520;
+        }
+
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #5a5550;
+        }
+
+        .speed-control input {
+            width: 100px;
+        }
+
+        /* Decision panel */
+        .decision-panel {
+            flex: 1;
+            min-width: 280px;
+            max-width: 350px;
+            background: #f5f2ed;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2a2520;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        .thinking {
+            text-align: center;
+            color: #7a7570;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        .thinking::after {
+            content: '';
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        .candidates-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .candidate {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            background: white;
+            border-radius: 4px;
+            border-left: 4px solid #c9bfb0;
+            transition: all 0.2s ease;
+        }
+
+        .candidate.selected {
+            border-left-color: #5cb85c;
+            background: #d4edda;
+        }
+
+        .candidate-move {
+            font-family: monospace;
+            font-size: 16px;
+            font-weight: 600;
+            color: #2a2520;
+            min-width: 50px;
+        }
+
+        .candidate-bar-container {
+            flex: 1;
+            height: 20px;
+            background: #e8e2d9;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .candidate-bar {
+            height: 100%;
+            background: #5cb85c;
+            transition: width 0.3s ease;
+        }
+
+        .candidate-score {
+            font-size: 13px;
+            font-weight: 600;
+            color: #5a5550;
+            min-width: 45px;
+            text-align: right;
+        }
+
+        /* Status */
+        .status {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 14px;
+            color: #5a5550;
+            min-height: 20px;
+        }
+
+        .status.turn-player {
+            color: #5cb85c;
+            font-weight: 500;
+        }
+
+        .status.game-over {
+            color: #d9534f;
+            font-weight: 600;
+        }
+
+        /* Waiting message */
+        .waiting-panel {
+            text-align: center;
+            padding: 40px 20px;
+            color: #7a7570;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Play JebBot</h1>
+            <p>A neural network that plays chess like Jeb</p>
+        </div>
+
+        <div class="mode-selector">
+            <button class="mode-btn active" data-mode="play">Play vs JebBot</button>
+            <button class="mode-btn" data-mode="watch-stockfish">JebBot vs Stockfish</button>
+            <button class="mode-btn" data-mode="watch-jebbot">JebBot vs JebBot</button>
+        </div>
+
+        <div class="game-area">
+            <div class="board-section">
+                <div id="board"></div>
+                <div class="controls">
+                    <button class="control-btn" id="new-game">New Game</button>
+                    <button class="control-btn" id="flip-board">Flip Board</button>
+                    <div class="speed-control" id="speed-control" style="display: none;">
+                        <label>Speed:</label>
+                        <input type="range" id="speed" min="500" max="3000" value="1500">
+                        <span id="speed-label">1.5s</span>
+                    </div>
+                </div>
+                <div class="status" id="status"></div>
+            </div>
+
+            <div class="decision-panel" id="decision-panel">
+                <div class="panel-title">JebBot's Thinking</div>
+                <div class="waiting-panel">Start a game to see JebBot's decisions</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script>
+        // Game state
+        let board = null;
+        let game = new Chess();
+        let gameMode = 'play';  // 'play', 'watch-stockfish', 'watch-jebbot'
+        let playerColor = 'white';
+        let autoPlayInterval = null;
+        let autoPlaySpeed = 1500;
+        let isThinking = false;
+
+        // Initialize board
+        function initBoard() {
+            const config = {
+                draggable: true,
+                position: 'start',
+                pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png',
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd,
+            };
+            board = Chessboard('board', config);
+        }
+
+        // Check if it's the player's turn
+        function isPlayerTurn() {
+            if (gameMode !== 'play') return false;
+            const turn = game.turn() === 'w' ? 'white' : 'black';
+            return turn === playerColor;
+        }
+
+        // Drag start handler
+        function onDragStart(source, piece, position, orientation) {
+            // Don't pick up pieces if game is over
+            if (game.game_over()) return false;
+
+            // Only pick up pieces for the side to move in play mode
+            if (gameMode === 'play') {
+                if (!isPlayerTurn()) return false;
+                if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+                    (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+                    return false;
+                }
+            } else {
+                // In watch modes, don't allow dragging
+                return false;
+            }
+        }
+
+        // Drop handler
+        function onDrop(source, target) {
+            // Try to make the move
+            const move = game.move({
+                from: source,
+                to: target,
+                promotion: 'q'  // Always promote to queen for simplicity
+            });
+
+            // Illegal move
+            if (move === null) return 'snapback';
+
+            updateStatus();
+
+            // After player moves, JebBot responds
+            if (!game.game_over()) {
+                setTimeout(makeJebBotMove, 300);
+            }
+        }
+
+        // Update board position after snap
+        function onSnapEnd() {
+            board.position(game.fen());
+        }
+
+        // Update game status
+        function updateStatus() {
+            let status = '';
+            const turn = game.turn() === 'w' ? 'White' : 'Black';
+
+            if (game.game_over()) {
+                if (game.in_checkmate()) {
+                    const winner = game.turn() === 'w' ? 'Black' : 'White';
+                    status = `Checkmate! ${winner} wins!`;
+                } else if (game.in_draw()) {
+                    status = 'Draw!';
+                } else {
+                    status = 'Game over!';
+                }
+                document.getElementById('status').className = 'status game-over';
+                stopAutoPlay();
+            } else {
+                if (gameMode === 'play') {
+                    if (isPlayerTurn()) {
+                        status = 'Your turn';
+                        document.getElementById('status').className = 'status turn-player';
+                    } else {
+                        status = 'JebBot is thinking...';
+                        document.getElementById('status').className = 'status';
+                    }
+                } else {
+                    status = `${turn} to move`;
+                    document.getElementById('status').className = 'status';
+                }
+            }
+
+            document.getElementById('status').textContent = status;
+        }
+
+        // Make JebBot move
+        async function makeJebBotMove() {
+            if (game.game_over() || isThinking) return;
+
+            isThinking = true;
+            showThinking();
+
+            try {
+                const response = await fetch('/jebbot_move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fen: game.fen() })
+                });
+
+                const data = await response.json();
+
+                if (data.selected_move) {
+                    showCandidates(data.candidates, data.selected_move);
+                    highlightCandidates(data.candidates, data.selected_move);
+
+                    // Make the move
+                    const move = game.move({
+                        from: data.selected_move.substring(0, 2),
+                        to: data.selected_move.substring(2, 4),
+                        promotion: data.selected_move.length > 4 ? data.selected_move[4] : 'q'
+                    });
+
+                    board.position(game.fen());
+                    updateStatus();
+                }
+            } catch (error) {
+                console.error('Error getting JebBot move:', error);
+            }
+
+            isThinking = false;
+        }
+
+        // Make Stockfish move (for watch modes)
+        async function makeStockfishMove() {
+            if (game.game_over() || isThinking) return;
+
+            isThinking = true;
+            showThinking();
+
+            try {
+                const response = await fetch('/stockfish_move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fen: game.fen() })
+                });
+
+                const data = await response.json();
+
+                if (data.move) {
+                    clearHighlights();
+                    showStockfishMove(data.move);
+
+                    const move = game.move({
+                        from: data.move.substring(0, 2),
+                        to: data.move.substring(2, 4),
+                        promotion: data.move.length > 4 ? data.move[4] : 'q'
+                    });
+
+                    board.position(game.fen());
+                    updateStatus();
+                }
+            } catch (error) {
+                console.error('Error getting Stockfish move:', error);
+            }
+
+            isThinking = false;
+        }
+
+        // Show thinking state
+        function showThinking() {
+            const panel = document.getElementById('decision-panel');
+            panel.innerHTML = `
+                <div class="panel-title">JebBot's Thinking</div>
+                <div class="thinking">Analyzing position</div>
+            `;
+        }
+
+        // Show candidates
+        function showCandidates(candidates, selectedMove) {
+            const panel = document.getElementById('decision-panel');
+
+            let html = '<div class="panel-title">JebBot\'s Analysis</div><div class="candidates-list">';
+
+            for (const candidate of candidates) {
+                const isSelected = candidate.move === selectedMove;
+                const scorePercent = (candidate.score * 100).toFixed(0);
+
+                html += `
+                    <div class="candidate ${isSelected ? 'selected' : ''}">
+                        <span class="candidate-move">${candidate.algebraic}</span>
+                        <div class="candidate-bar-container">
+                            <div class="candidate-bar" style="width: ${scorePercent}%"></div>
+                        </div>
+                        <span class="candidate-score">${scorePercent}%</span>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            panel.innerHTML = html;
+        }
+
+        // Show Stockfish move (for watch mode)
+        function showStockfishMove(move) {
+            const panel = document.getElementById('decision-panel');
+            // Get algebraic notation
+            const tempGame = new Chess(game.fen());
+            let algebraic = move;
+            try {
+                const moveObj = tempGame.move({
+                    from: move.substring(0, 2),
+                    to: move.substring(2, 4),
+                    promotion: move.length > 4 ? move[4] : undefined
+                });
+                if (moveObj) algebraic = moveObj.san;
+            } catch (e) {}
+
+            panel.innerHTML = `
+                <div class="panel-title">Stockfish's Move</div>
+                <div class="candidates-list">
+                    <div class="candidate selected">
+                        <span class="candidate-move">${algebraic}</span>
+                        <div class="candidate-bar-container">
+                            <div class="candidate-bar" style="width: 100%"></div>
+                        </div>
+                        <span class="candidate-score">ELO 1500</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Highlight candidate squares on board
+        function highlightCandidates(candidates, selectedMove) {
+            clearHighlights();
+
+            for (const candidate of candidates) {
+                const toSquare = candidate.move.substring(2, 4);
+                const squareEl = document.querySelector(`.square-${toSquare}`);
+                if (squareEl) {
+                    if (candidate.move === selectedMove) {
+                        squareEl.classList.add('highlight-selected');
+                    } else {
+                        squareEl.classList.add('highlight-candidate');
+                    }
+                }
+            }
+        }
+
+        // Clear highlights
+        function clearHighlights() {
+            document.querySelectorAll('.highlight-candidate, .highlight-selected').forEach(el => {
+                el.classList.remove('highlight-candidate', 'highlight-selected');
+            });
+        }
+
+        // Start auto-play for watch modes
+        function startAutoPlay() {
+            stopAutoPlay();
+
+            const makeNextMove = async () => {
+                if (game.game_over()) {
+                    stopAutoPlay();
+                    return;
+                }
+
+                if (gameMode === 'watch-stockfish') {
+                    // JebBot plays white, Stockfish plays black
+                    const isWhiteTurn = game.turn() === 'w';
+                    if (isWhiteTurn) {
+                        await makeJebBotMove();
+                    } else {
+                        await makeStockfishMove();
+                    }
+                } else if (gameMode === 'watch-jebbot') {
+                    // Both sides are JebBot
+                    await makeJebBotMove();
+                }
+            };
+
+            // Make first move immediately
+            makeNextMove();
+
+            // Then continue at interval
+            autoPlayInterval = setInterval(makeNextMove, autoPlaySpeed);
+        }
+
+        // Stop auto-play
+        function stopAutoPlay() {
+            if (autoPlayInterval) {
+                clearInterval(autoPlayInterval);
+                autoPlayInterval = null;
+            }
+        }
+
+        // New game
+        function newGame() {
+            stopAutoPlay();
+            game = new Chess();
+            board.start();
+            clearHighlights();
+
+            const panel = document.getElementById('decision-panel');
+            panel.innerHTML = `
+                <div class="panel-title">JebBot's Thinking</div>
+                <div class="waiting-panel">Game started! ${gameMode === 'play' ? 'Make your move.' : 'Watching...'}</div>
+            `;
+
+            updateStatus();
+
+            // In play mode, if JebBot plays white (player is black), JebBot moves first
+            if (gameMode === 'play' && playerColor === 'black') {
+                setTimeout(makeJebBotMove, 500);
+            }
+
+            // In watch modes, start auto-play
+            if (gameMode === 'watch-stockfish' || gameMode === 'watch-jebbot') {
+                setTimeout(startAutoPlay, 500);
+            }
+        }
+
+        // Flip board
+        function flipBoard() {
+            board.flip();
+            if (gameMode === 'play') {
+                playerColor = playerColor === 'white' ? 'black' : 'white';
+                // If it's now JebBot's turn at game start, make a move
+                if (!isPlayerTurn() && game.history().length === 0) {
+                    setTimeout(makeJebBotMove, 500);
+                }
+            }
+        }
+
+        // Mode change
+        function setMode(mode) {
+            stopAutoPlay();
+            gameMode = mode;
+
+            // Update UI
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+
+            // Show/hide speed control
+            document.getElementById('speed-control').style.display =
+                (mode === 'watch-stockfish' || mode === 'watch-jebbot') ? 'flex' : 'none';
+
+            // Reset game for new mode
+            newGame();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initBoard();
+            updateStatus();
+
+            // Mode buttons
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.addEventListener('click', () => setMode(btn.dataset.mode));
+            });
+
+            // Control buttons
+            document.getElementById('new-game').addEventListener('click', newGame);
+            document.getElementById('flip-board').addEventListener('click', flipBoard);
+
+            // Speed slider
+            document.getElementById('speed').addEventListener('input', (e) => {
+                autoPlaySpeed = parseInt(e.target.value);
+                document.getElementById('speed-label').textContent = (autoPlaySpeed / 1000).toFixed(1) + 's';
+
+                // Restart auto-play with new speed if active
+                if (autoPlayInterval) {
+                    startAutoPlay();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

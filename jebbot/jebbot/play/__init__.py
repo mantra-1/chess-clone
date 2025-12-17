@@ -1,0 +1,1 @@
+"""JebBot chess playing module."""

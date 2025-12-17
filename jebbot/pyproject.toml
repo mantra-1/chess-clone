@@ -5,6 +5,7 @@ description = "A neural network trained to play chess like me"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "flask>=3.0.0",
     "numpy>=2.3.5",
     "python-chess>=1.999",
     "requests>=2.32.5",
