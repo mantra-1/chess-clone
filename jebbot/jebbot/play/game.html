@@ -270,6 +270,47 @@
         .terminal-book {
             color: #fbbf24;
         }
+
+        .terminal-endgame {
+            color: #60a5fa;
+        }
+
+        /* Move navigation */
+        .move-nav {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .nav-btn {
+            padding: 6px 12px;
+            border: 2px solid #c9bfb0;
+            border-radius: 4px;
+            background: #f5f2ed;
+            color: #5a5550;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            min-width: 36px;
+        }
+
+        .nav-btn:hover:not(:disabled) {
+            background: #ebe6de;
+            border-color: #a09080;
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .nav-btn.active {
+            background: #5cb85c;
+            border-color: #5cb85c;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -295,6 +336,12 @@
                 <button class="control-btn primary" id="start-btn">Start Game</button>
                 <button class="control-btn" id="new-game">New Game</button>
             </div>
+            <div class="move-nav">
+                <button class="nav-btn" id="nav-first" disabled>|&lt;</button>
+                <button class="nav-btn" id="nav-prev" disabled>&lt;</button>
+                <button class="nav-btn" id="nav-next" disabled>&gt;</button>
+                <button class="nav-btn active" id="nav-current">&gt;|</button>
+            </div>
             <div class="status" id="status"></div>
         </div>
 
@@ -316,6 +363,10 @@
         let isPlaying = false;    // For auto-play (stockfish mode)
         let autoPlayTimeout = null;
         let isThinking = false;
+
+        // Move history navigation
+        let fenHistory = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1']; // Starting position
+        let viewingIndex = 0; // Current position being viewed (fenHistory.length - 1 = current game)
 
         // Initialize board
         function initBoard() {
@@ -352,8 +403,19 @@
             return game.turn() === getPlayerColor();
         }
 
+        // Check if viewing current position
+        function isViewingCurrent() {
+            return viewingIndex === fenHistory.length - 1;
+        }
+
         // Drag start handler
         function onDragStart(source, piece, position, orientation) {
+            // Can't drag while viewing history
+            if (!isViewingCurrent()) {
+                goToCurrent();
+                return false;
+            }
+
             if (game.game_over()) return false;
             if (opponent !== 'player') return false;
             if (!gameStarted && getPlayerColor() === 'b') return false; // Must click Start if playing black
@@ -382,6 +444,9 @@
             });
 
             if (move === null) return 'snapback';
+
+            // Add to FEN history
+            addToHistory(game.fen());
 
             updateStatus();
             clearHighlights();
@@ -457,6 +522,9 @@
                         promotion: data.selected_move.length > 4 ? data.selected_move[4] : 'q'
                     });
 
+                    // Add to FEN history
+                    addToHistory(game.fen());
+
                     board.position(game.fen());
                     updateStatus();
 
@@ -495,6 +563,9 @@
                         to: data.move.substring(2, 4),
                         promotion: data.move.length > 4 ? data.move[4] : undefined
                     });
+
+                    // Add to FEN history
+                    addToHistory(game.fen());
 
                     board.position(game.fen());
                     updateStatus();
@@ -547,6 +618,23 @@
                         </div>
                     </div>
                     <div class="terminal-action"><span class="terminal-prompt">&gt;</span> <span class="terminal-book">Playing ${selectedAlgebraic}</span></div>
+                `;
+                return;
+            }
+
+            // Handle endgame handoff to Stockfish
+            if (selectionReason === 'endgame_stockfish') {
+                terminal.innerHTML = `
+                    <div class="terminal-line"><span class="terminal-prompt">&gt;</span> <span class="terminal-endgame">Endgame - Stockfish takeover</span></div>
+                    <div class="terminal-candidates">
+                        <div class="candidate-row selected">
+                            <span class="candidate-num">1.</span>
+                            <span class="candidate-move terminal-endgame">${selectedAlgebraic}</span>
+                            <span class="candidate-bar">${buildBar(1.0)}</span>
+                            <span class="candidate-score terminal-endgame">SF</span>
+                        </div>
+                    </div>
+                    <div class="terminal-action"><span class="terminal-prompt">&gt;</span> <span class="terminal-endgame">Playing ${selectedAlgebraic}</span></div>
                 `;
                 return;
             }
@@ -617,6 +705,78 @@
             document.querySelectorAll('.highlight-candidate, .highlight-selected').forEach(el => {
                 el.classList.remove('highlight-candidate', 'highlight-selected');
             });
+        }
+
+        // Add position to FEN history
+        function addToHistory(fen) {
+            fenHistory.push(fen);
+            viewingIndex = fenHistory.length - 1;
+            updateNavButtons();
+        }
+
+        // Update navigation button states
+        function updateNavButtons() {
+            const atStart = viewingIndex === 0;
+            const atEnd = viewingIndex === fenHistory.length - 1;
+
+            document.getElementById('nav-first').disabled = atStart;
+            document.getElementById('nav-prev').disabled = atStart;
+            document.getElementById('nav-next').disabled = atEnd;
+
+            // Highlight current button when at current position
+            const currentBtn = document.getElementById('nav-current');
+            if (atEnd) {
+                currentBtn.classList.add('active');
+            } else {
+                currentBtn.classList.remove('active');
+            }
+
+            // Update terminal if viewing history
+            if (!atEnd) {
+                showHistoryView();
+            }
+        }
+
+        // Show history view message in terminal
+        function showHistoryView() {
+            const terminal = document.getElementById('terminal');
+            const moveNum = viewingIndex;
+            const totalMoves = fenHistory.length - 1;
+            terminal.innerHTML = `<div class="terminal-waiting">Viewing move ${moveNum} of ${totalMoves}</div>`;
+        }
+
+        // Navigation functions
+        function goToFirst() {
+            if (viewingIndex === 0) return;
+            viewingIndex = 0;
+            board.position(fenHistory[viewingIndex]);
+            clearHighlights();
+            updateNavButtons();
+        }
+
+        function goToPrev() {
+            if (viewingIndex === 0) return;
+            viewingIndex--;
+            board.position(fenHistory[viewingIndex]);
+            clearHighlights();
+            updateNavButtons();
+        }
+
+        function goToNext() {
+            if (viewingIndex >= fenHistory.length - 1) return;
+            viewingIndex++;
+            board.position(fenHistory[viewingIndex]);
+            clearHighlights();
+            updateNavButtons();
+        }
+
+        function goToCurrent() {
+            if (viewingIndex === fenHistory.length - 1) return;
+            viewingIndex = fenHistory.length - 1;
+            board.position(fenHistory[viewingIndex]);
+            clearHighlights();
+            updateNavButtons();
+            updateTerminalMessage();
         }
 
         // Start game / auto-play
@@ -763,6 +923,12 @@
             board.position('start');
             board.orientation(boardFlipped ? 'black' : 'white');
             clearHighlights();
+
+            // Reset FEN history
+            fenHistory = ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'];
+            viewingIndex = 0;
+            updateNavButtons();
+
             updateFlipButton();
             updateStartButton();
             updateTerminalMessage();
@@ -785,6 +951,12 @@
             document.getElementById('flip-board').addEventListener('click', flipBoard);
             document.getElementById('start-btn').addEventListener('click', handleStartButton);
             document.getElementById('new-game').addEventListener('click', newGame);
+
+            // Navigation buttons
+            document.getElementById('nav-first').addEventListener('click', goToFirst);
+            document.getElementById('nav-prev').addEventListener('click', goToPrev);
+            document.getElementById('nav-next').addEventListener('click', goToNext);
+            document.getElementById('nav-current').addEventListener('click', goToCurrent);
 
             // Opponent selector
             document.getElementById('opponent').addEventListener('change', (e) => {

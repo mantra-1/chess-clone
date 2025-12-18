@@ -47,6 +47,43 @@ def find_stockfish() -> str:
     )
 
 
+# Material values for endgame detection
+MATERIAL_VALUES = {
+    "P": 1, "p": 1,
+    "N": 3, "n": 3,
+    "B": 3, "b": 3,
+    "R": 5, "r": 5,
+    "Q": 9, "q": 9,
+    "K": 0, "k": 0,
+}
+
+
+def calculate_material(fen: str) -> tuple[int, int]:
+    """Calculate material for each side from FEN.
+
+    Args:
+        fen: FEN string of position
+
+    Returns:
+        Tuple of (white_material, black_material)
+    """
+    # Get piece placement (first part of FEN)
+    piece_placement = fen.split()[0]
+
+    white_material = 0
+    black_material = 0
+
+    for char in piece_placement:
+        if char in MATERIAL_VALUES:
+            value = MATERIAL_VALUES[char]
+            if char.isupper():
+                white_material += value
+            else:
+                black_material += value
+
+    return white_material, black_material
+
+
 class JebBotEngine:
     """Chess engine that plays in Jeb's style using trained model."""
 
@@ -183,9 +220,10 @@ class JebBotEngine:
 
         Selection logic:
         0. Check opening book first
-        1. Find first Stockfish move with >50% Jeb score ("safe pick")
-        2. If another move has Jeb score 15%+ higher, play that instead
-        3. If no move is >50% Jeb, fall back to highest Jeb score
+        1. Check for endgame (either side <= 12 material) - hand off to Stockfish
+        2. Find first Stockfish move with >50% Jeb score ("safe pick")
+        3. If another move has Jeb score 15%+ higher, play that instead
+        4. If no move is >50% Jeb, fall back to highest Jeb score
 
         Args:
             fen: FEN string of current position
@@ -196,7 +234,8 @@ class JebBotEngine:
             Dict with:
                 - selected_move: UCI string of chosen move
                 - candidates: List of {move, score, algebraic} dicts
-                - selection_reason: "opening_book", "safe_pick", "strong_jeb_preference", or "fallback"
+                - selection_reason: "opening_book", "endgame_stockfish", "safe_pick",
+                                    "strong_jeb_preference", or "fallback"
         """
         board = chess.Board(fen)
 
@@ -216,6 +255,25 @@ class JebBotEngine:
                     "candidates": [{"move": book_move, "score": 1.0, "algebraic": algebraic}],
                     "selection_reason": "opening_book",
                 }
+
+        # Check for endgame - hand off to pure Stockfish
+        ENDGAME_THRESHOLD = 12  # Material points (excluding king)
+        white_material, black_material = calculate_material(fen)
+
+        if white_material <= ENDGAME_THRESHOLD or black_material <= ENDGAME_THRESHOLD:
+            # Endgame - use pure Stockfish
+            stockfish_move = self.get_stockfish_move(fen)
+            try:
+                move = chess.Move.from_uci(stockfish_move)
+                algebraic = board.san(move)
+            except (ValueError, chess.InvalidMoveError):
+                algebraic = stockfish_move
+
+            return {
+                "selected_move": stockfish_move,
+                "candidates": [{"move": stockfish_move, "score": 1.0, "algebraic": algebraic}],
+                "selection_reason": "endgame_stockfish",
+            }
 
         # Get candidate moves from Stockfish (ranked by quality)
         candidates = self.get_candidates(fen, n_candidates)
