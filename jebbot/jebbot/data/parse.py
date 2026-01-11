@@ -15,7 +15,8 @@ except ImportError:
     STOCKFISH_AVAILABLE = False
 
 
-USERNAME = "jebhead"
+# Default Chess.com username - change this to your username
+DEFAULT_USERNAME = "YOUR_CHESS_COM_USERNAME"
 SKIP_FIRST_N_MOVES = 5
 # Results that indicate the game didn't end normally
 SKIP_RESULTS = {"timeout", "abandoned", "timevsinsufficient"}
@@ -99,7 +100,7 @@ def init_stockfish(
         return None
 
 
-def parse_game_to_positions(game_data: dict, username: str = USERNAME) -> list[dict]:
+def parse_game_to_positions(game_data: dict, username: str = DEFAULT_USERNAME) -> list[dict]:
     """Parse a single game into training positions.
 
     Args:
@@ -187,7 +188,7 @@ def load_games_from_file(filepath: Path) -> list[dict]:
 
 def process_all_games(
     raw_dir: Path,
-    username: str = USERNAME,
+    username: str = DEFAULT_USERNAME,
 ) -> Iterator[dict]:
     """Process all games from raw JSON files.
 
@@ -209,7 +210,7 @@ def process_all_games(
 
 def build_training_dataset(
     raw_dir: Path,
-    username: str = USERNAME,
+    username: str = DEFAULT_USERNAME,
     use_stockfish: bool = False,
     stockfish_path: Optional[str] = None,
     progress_callback: Optional[callable] = None,

@@ -15,9 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description="Download chess.com games for a user")
     parser.add_argument(
         "username",
-        nargs="?",
-        default="jebhead",
-        help="Chess.com username (default: jebhead)",
+        help="Chess.com username to download games for",
     )
     args = parser.parse_args()
 

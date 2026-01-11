@@ -1,12 +1,39 @@
-# Data directory (top-level only)
+# Data (games, models, processed data)
 /data/
 
-# Python cache
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
 
-# Virtual environment
+# Virtual environments
 .venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
 
 # macOS
 .DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

@@ -10,8 +10,9 @@ from pathlib import Path
 import chess.pgn
 import io
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-USERNAME = "jebhead"
+from jebbot.data.parse import DEFAULT_DEFAULT_USERNAME
 
 
 def load_all_games(raw_dir: Path) -> list[dict]:
@@ -129,7 +130,7 @@ def main():
         return
 
     print(f"\n{'='*50}")
-    print(f"CHESS.COM GAME ANALYSIS FOR: {USERNAME}")
+    print(f"CHESS.COM GAME ANALYSIS FOR: {DEFAULT_USERNAME}")
     print(f"{'='*50}\n")
 
     # Total games
@@ -152,7 +153,7 @@ def main():
     results_black = Counter()
 
     for game in games:
-        color, result = get_result_for_player(game, USERNAME)
+        color, result = get_result_for_player(game, DEFAULT_USERNAME)
         if color == "white":
             results_white[result] += 1
         elif color == "black":
