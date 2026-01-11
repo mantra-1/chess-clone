@@ -12,7 +12,7 @@ import io
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from jebbot.data.parse import DEFAULT_DEFAULT_USERNAME
+from jebbot.data.parse import DEFAULT_USERNAME
 
 
 def load_all_games(raw_dir: Path) -> list[dict]:
