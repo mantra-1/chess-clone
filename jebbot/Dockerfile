@@ -1,14 +1,12 @@
 FROM python:3.11-slim
 
-# Install stockfish
+# Install stockfish binary
 RUN apt-get update && \
     apt-get install -y --no-install-recommends stockfish && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    which stockfish && stockfish --help || true
 
 WORKDIR /app
-
-# Install Python dependencies directly with pip
-COPY pyproject.toml ./
 
 # Install CPU-only torch first, then the rest
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
@@ -19,6 +17,7 @@ COPY jebbot/ ./jebbot/
 COPY data/models/best_model.pt ./data/models/best_model.pt
 
 ENV PYTHONPATH=/app
+ENV STOCKFISH_PATH=/usr/games/stockfish
 
 EXPOSE 8767
 

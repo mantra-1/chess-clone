@@ -1,5 +1,6 @@
 """JebBot chess engine - uses trained model to select moves."""
 
+import os
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -17,6 +18,7 @@ STOCKFISH_PATHS = [
     "/opt/homebrew/bin/stockfish",  # Mac Homebrew (Apple Silicon)
     "/usr/local/bin/stockfish",  # Mac Homebrew (Intel) / Linux manual install
     "/usr/bin/stockfish",  # Linux package manager
+    "/usr/games/stockfish",  # Debian/Ubuntu apt package
 ]
 
 
@@ -29,7 +31,12 @@ def find_stockfish() -> str:
     Raises:
         FileNotFoundError: If Stockfish cannot be found
     """
-    # First try to find in PATH
+    # Check environment variable first
+    env_path = os.environ.get("STOCKFISH_PATH")
+    if env_path and Path(env_path).exists():
+        return env_path
+
+    # Try to find in PATH
     path_stockfish = shutil.which("stockfish")
     if path_stockfish:
         return path_stockfish
