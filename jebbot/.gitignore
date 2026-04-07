@@ -1,5 +1,6 @@
-# Data directory (top-level only)
-/data/
+# Data directory (raw and processed only)
+/data/raw/
+/data/processed/
 
 # Python cache
 __pycache__/
