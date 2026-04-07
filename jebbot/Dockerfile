@@ -5,23 +5,21 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends stockfish && \
     rm -rf /var/lib/apt/lists/*
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
 WORKDIR /app
 
-# Copy dependency files first for layer caching
-COPY pyproject.toml uv.lock ./
+# Install Python dependencies directly with pip
+COPY pyproject.toml ./
 
-# Install all deps first, then replace torch with CPU-only version
-RUN uv venv && \
-    uv sync --no-dev && \
-    uv pip install torch --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+# Install CPU-only torch first, then the rest
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir flask flask-cors numpy python-chess stockfish requests
 
 # Copy application code and model
 COPY jebbot/ ./jebbot/
 COPY data/models/best_model.pt ./data/models/best_model.pt
 
+ENV PYTHONPATH=/app
+
 EXPOSE 8767
 
-CMD ["uv", "run", "python", "-m", "jebbot.play.server"]
+CMD ["python", "-m", "jebbot.play.server"]
