@@ -13,14 +13,15 @@ WORKDIR /app
 # Copy dependency files first for layer caching
 COPY pyproject.toml uv.lock ./
 
-# Create venv and install CPU-only torch + other deps
+# Install all deps first, then replace torch with CPU-only version
 RUN uv venv && \
-    uv pip install torch --index-url https://download.pytorch.org/whl/cpu && \
-    uv pip install flask-cors && \
-    uv sync --no-dev
+    uv sync --no-dev && \
+    uv pip install torch --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 
 # Copy application code and model
 COPY jebbot/ ./jebbot/
 COPY data/models/best_model.pt ./data/models/best_model.pt
+
+EXPOSE 8767
 
 CMD ["uv", "run", "python", "-m", "jebbot.play.server"]
