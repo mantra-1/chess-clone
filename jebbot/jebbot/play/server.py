@@ -1,9 +1,11 @@
 """HTTP server for JebBot chess game."""
 
+import os
 import sys
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file
+from flask_cors import CORS
 
 from jebbot.play.engine import JebBotEngine
 
@@ -15,6 +17,10 @@ GAME_HTML = PLAY_DIR / "game.html"
 
 # Flask app
 app = Flask(__name__)
+
+# CORS - allow jebsite and local dev
+allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+CORS(app, origins=allowed_origins)
 
 # Engine (loaded at startup)
 engine = None
@@ -81,13 +87,14 @@ def stockfish_move():
         return jsonify({"error": str(e)}), 500
 
 
-def run_server(host: str = "localhost", port: int = 8767):
+def run_server(host: str = "0.0.0.0", port: int = 8767):
     """Run the Flask server.
 
     Args:
         host: Host to bind to
         port: Port to listen on
     """
+    port = int(os.environ.get("PORT", port))
     init_engine()
     app.run(host=host, port=port, debug=False, threaded=True)
 

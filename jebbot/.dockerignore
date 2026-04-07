@@ -1,0 +1,10 @@
+.venv/
+scripts/
+notebooks/
+data/raw/
+data/processed/
+__pycache__/
+*.pyc
+.git/
+PROGRESS.md
+README.md
